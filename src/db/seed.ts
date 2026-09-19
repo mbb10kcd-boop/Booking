@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
@@ -10,7 +10,7 @@ import { parseBookingMail } from "../lib/ai/mailParser";
 const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "grenaa.db");
 const dir = path.dirname(dbPath);
 if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-const sqlite = new Database(dbPath);
+const sqlite = createClient({ url: `file:${dbPath}` });
 const db = drizzle(sqlite, { schema });
 
 function id(prefix: string) {
@@ -36,7 +36,7 @@ function isoDate(d: Date) {
 
 async function main() {
   console.log("Nulstiller eksisterende data...");
-  sqlite.exec(`
+  await sqlite.executeMultiple(`
     DELETE FROM notification_log;
     DELETE FROM conflict_logs;
     DELETE FROM booking_request_lines;

@@ -8,14 +8,21 @@ inklusive dem der bør revurderes før rigtig drift.
 
 - **Next.js 16 (App Router, TypeScript)** - samlet frontend + API (Route
   Handlers under `src/app/api/**`).
-- **Drizzle ORM + SQLite** (`src/db`). *Beslutning:* Prisma var det oprindelige
-  valg, men Prisma kræver at downloade en query-engine-binary fra
+- **Drizzle ORM + SQLite via libsql** (`src/db`). *Beslutning:* Prisma var det
+  oprindelige valg, men Prisma kræver at downloade en query-engine-binary fra
   `binaries.prisma.sh` ved opsætning, og dette miljøs netværkspolitik blokerer
-  den adresse. Drizzle + `better-sqlite3` har ingen tilsvarende
-  netværksafhængighed (kompileres lokalt via npm) og fungerer identisk godt
-  til formålet. Til rigtig drift er det en lige så velegnet, aktivt
-  vedligeholdt ORM - men skift til Prisma er stadig muligt, hvis I foretrækker
-  det og har adgang til `binaries.prisma.sh` i jeres driftsmiljø.
+  den adresse. Første Drizzle-version brugte `better-sqlite3`, men den pakke
+  skal ofte **kompileres lokalt** (node-gyp + Python + C++ build tools), hvis
+  der ikke findes et færdigbygget binary til den præcise
+  platform/Node-version - noget der typisk fejler på almindelige
+  Windows-arbejdscomputere (manglende Python/Visual Studio, eller en firewall
+  der blokerer download af de færdigbyggede filer fra GitHub). Dette blev
+  opdaget under test hos centeret og rettet ved at skifte til **libsql**
+  (`@libsql/client`), som henter et færdigbygget binary som en helt
+  almindelig npm-pakke - samme kanal som alle andre afhængigheder - og derfor
+  er langt mere robust på tværs af maskiner og netværk. Til rigtig drift er
+  Drizzle en lige så velegnet, aktivt vedligeholdt ORM uanset databasevalg -
+  skift til Prisma eller en server-database (se afsnit 7) er stadig muligt.
 - **Tailwind CSS** for et konsistent, mobile-first design.
 - Ingen ekstern autentificering endnu (se afsnit 7, kritiske beslutninger).
 
