@@ -67,3 +67,29 @@ export function roundDateTimeLocalString(value: string, stepMinutes = 10): strin
   d.setHours(0, rounded, 0, 0); // setHours normaliserer selv overløb til næste dag/måned lokalt
   return `${localISODate(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
+
+/**
+ * Lægger `deltaMinutes` til et rå klokkeslæt ("HH:mm"), med rundkørsel i
+ * døgnet. Bruges til at gøre museknap-rul over <input type="time"> hop i
+ * 10-minutters-spring i stedet for browserens indbyggede 1-minuts-spring
+ * (Chrome/Edge respekterer ikke `step` ved rul, kun ved klik på op/ned-pilene
+ * - feedback fra centeret var at det stadig "hoppede med 1 minut når man
+ * ruller", så vi overtager selv rul-håndteringen).
+ */
+export function stepTimeString(time: string, deltaMinutes: number): string {
+  const [hh, mm] = time.split(":").map(Number);
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return time;
+  const total = (((hh * 60 + mm + deltaMinutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/** Samme som `stepTimeString`, men for en rå datetime-local-værdi ("YYYY-MM-DDTHH:mm"); overløb ruller til næste/forrige dag. */
+export function stepDateTimeLocalString(value: string, deltaMinutes: number): string {
+  const [datePart, timePart] = value.split("T");
+  if (!datePart || !timePart) return value;
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hh, mm] = timePart.split(":").map(Number);
+  if ([year, month, day, hh, mm].some((n) => Number.isNaN(n))) return value;
+  const d = new Date(year, month - 1, day, hh, mm + deltaMinutes);
+  return `${localISODate(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
