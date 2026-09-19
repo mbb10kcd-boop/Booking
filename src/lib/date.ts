@@ -37,3 +37,33 @@ export function addDays(d: Date, days: number): Date {
   copy.setDate(copy.getDate() + days);
   return copy;
 }
+
+/**
+ * Runder et klokkeslæt ("HH:mm") til nærmeste multiplum af `stepMinutes`
+ * (standard 10 min). Beslutning: bookingtider skal altid lande på hele
+ * 10-minutters-intervaller (fx 15:50 eller 16:00, aldrig 15:51) - dels fordi
+ * browserens indbyggede tidsvælger ellers kræver at rulle igennem alle 60
+ * minuttal, dels fordi det matcher hvordan tiderne faktisk bruges i praksis.
+ * Bruges sammen med `step={stepMinutes * 60}` på <input type="time">, som
+ * gør at klik på op/ned-pilene i sig selv springer 10 minutter ad gangen;
+ * denne funktion retter derudover op på tastede/indsatte "skæve" tider.
+ */
+export function roundTimeString(time: string, stepMinutes = 10): string {
+  const [hh, mm] = time.split(":").map(Number);
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return time;
+  const total = ((Math.round((hh * 60 + mm) / stepMinutes) * stepMinutes) % 1440 + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/** Samme afrunding som `roundTimeString`, men for en rå datetime-local-værdi ("YYYY-MM-DDTHH:mm"). */
+export function roundDateTimeLocalString(value: string, stepMinutes = 10): string {
+  const [datePart, timePart] = value.split("T");
+  if (!datePart || !timePart) return value;
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hh, mm] = timePart.split(":").map(Number);
+  if ([year, month, day, hh, mm].some((n) => Number.isNaN(n))) return value;
+  const d = new Date(year, month - 1, day, hh, mm);
+  const rounded = Math.round((d.getHours() * 60 + d.getMinutes()) / stepMinutes) * stepMinutes;
+  d.setHours(0, rounded, 0, 0); // setHours normaliserer selv overløb til næste dag/måned lokalt
+  return `${localISODate(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}

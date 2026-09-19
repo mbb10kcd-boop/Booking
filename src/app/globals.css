@@ -30,3 +30,16 @@ body {
 .animate-fade-in {
   animation: fade-in 0.2s ease-out;
 }
+
+/* Pedelvisningens udskriftsformat (/pedel) - se side.tsx for den skjulte
+   print-only-tabel. Sætter A4 med rimelige margener, så listen ikke skæres
+   underligt af ved udskrivning. */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 14mm;
+  }
+  body {
+    background: #fff;
+  }
+}

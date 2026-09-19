@@ -79,6 +79,26 @@ Venlig hilsen
 Grenaa Idrætscenter`;
 }
 
+export function cancellationMessage(opts: {
+  facilityName: string;
+  startsAt: string;
+  endsAt: string;
+  recipientName?: string;
+}): string {
+  return `Hej${opts.recipientName ? ` ${opts.recipientName}` : ""}
+
+Jeres booking er blevet aflyst:
+
+${opts.facilityName}
+${formatDaDate(opts.startsAt)}
+${formatDaTime(opts.startsAt)} - ${formatDaTime(opts.endsAt)}
+
+Kontakt os endelig, hvis I har spørgsmål, eller ønsker at booke en ny tid.
+
+Venlig hilsen
+Grenaa Idrætscenter`;
+}
+
 export function conflictExplanation(opts: {
   facilityName: string;
   startsAt: string;

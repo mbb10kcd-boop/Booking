@@ -219,6 +219,8 @@ export function CalendarClient({
       {selectedBooking && (
         <BookingDetail
           booking={selectedBooking}
+          facilities={facilities}
+          organizations={organizations}
           facilityName={facilityName(selectedBooking.facilityId)}
           onClose={() => setSelectedBooking(null)}
           onChanged={() => {
@@ -417,22 +419,39 @@ function MonthView({
 
 function BookingDetail({
   booking,
+  facilities,
+  organizations,
   facilityName,
   onClose,
   onChanged,
 }: {
   booking: BookingDTO;
+  facilities: FacilityDTO[];
+  organizations: OrganizationDTO[];
   facilityName: string;
   onClose: () => void;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   async function cancelBooking() {
     setBusy(true);
     await fetch(`/api/bookings/${booking.id}`, { method: "DELETE" });
     setBusy(false);
     onChanged();
+  }
+
+  if (editing) {
+    return (
+      <BookingFormModal
+        booking={booking}
+        facilities={facilities}
+        organizations={organizations}
+        onClose={() => setEditing(false)}
+        onSaved={onChanged}
+      />
+    );
   }
 
   return (
@@ -487,11 +506,17 @@ function BookingDetail({
           )}
         </div>
         {booking.status !== "aflyst" && (
-          <div className="px-5 py-4 border-t border-slate-100">
+          <div className="px-5 py-4 border-t border-slate-100 flex gap-3">
+            <button
+              onClick={() => setEditing(true)}
+              className="flex-1 rounded-lg border border-slate-300 text-slate-700 py-2.5 text-sm font-medium hover:bg-slate-50"
+            >
+              Rediger
+            </button>
             <button
               onClick={cancelBooking}
               disabled={busy}
-              className="w-full rounded-lg border border-red-200 text-red-600 py-2.5 text-sm font-medium hover:bg-red-50 disabled:opacity-50"
+              className="flex-1 rounded-lg border border-red-200 text-red-600 py-2.5 text-sm font-medium hover:bg-red-50 disabled:opacity-50"
             >
               {busy ? "Aflyser..." : "Aflys booking"}
             </button>

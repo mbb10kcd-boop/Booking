@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { FacilityDTO } from "@/lib/clientTypes";
 import { formatDaDate, formatDaTime } from "@/lib/ai/messages";
-import { combineDateAndTime, localISODate } from "@/lib/date";
+import { combineDateAndTime, localISODate, roundTimeString } from "@/lib/date";
 
 type Step = "facilitet" | "tid" | "info" | "betaling" | "kvittering";
 
@@ -159,11 +159,13 @@ export default function PublicBookingPortal() {
                   <label className="block text-sm font-medium text-slate-700 mb-1">Fra</label>
                   <input
                     type="time"
+                    step={600}
                     value={startTime}
                     onChange={(e) => {
                       setStartTime(e.target.value);
                       setAvailability("ukendt");
                     }}
+                    onBlur={(e) => e.target.value && setStartTime(roundTimeString(e.target.value))}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
                   />
                 </div>
@@ -171,11 +173,13 @@ export default function PublicBookingPortal() {
                   <label className="block text-sm font-medium text-slate-700 mb-1">Til</label>
                   <input
                     type="time"
+                    step={600}
                     value={endTime}
                     onChange={(e) => {
                       setEndTime(e.target.value);
                       setAvailability("ukendt");
                     }}
+                    onBlur={(e) => e.target.value && setEndTime(roundTimeString(e.target.value))}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
                   />
                 </div>
