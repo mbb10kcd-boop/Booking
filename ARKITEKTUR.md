@@ -172,6 +172,34 @@ lette at koble til uden at ændre resten af systemet:
    parser dækker de mønstre der er i kravspecifikationen godt, men en rigtig
    sprogmodel vil håndtere mere uforudsigelige mailformuleringer bedre.
 
+## 7a. Ændringer efter feedback fra centeret (løbende)
+
+- Fjernet "Status"-feltet fra formularen for direkte oprettede bookinger -
+  disse sættes nu altid automatisk til "bekræftet" (se `DIRECT_BOOKING_STATUS`
+  i `BookingFormModal.tsx`); de mellemliggende GIBBS-statusser bruges ikke.
+- Tidsvælgere (booking-formular og portalen) springer nu 10 minutter ad
+  gangen i stedet for 1, og retter automatisk et tastet "skævt" tidspunkt til
+  nærmeste 10-minutters-interval (`roundTimeString`/`roundDateTimeLocalString`
+  i `src/lib/date.ts`).
+- Vælges en forening, foreslås automatisk dennes registrerede kontaktperson
+  (typisk formanden) i Kontaktnavn/Kontakt e-mail - felterne forbliver
+  redigerbare, da det ind imellem er en anden person, der booker.
+- Direkte oprettede bookinger sender nu en (simuleret) bekræftelsesmail hvis
+  der er en kontaktmail, og en aflysningsmail når en booking aflyses -
+  logges i `notification_log` ligesom mailindbakkens beskeder.
+- Mangler man en titel, bruges foreningens navn i stedet for det generiske
+  "Booking".
+- Alle bookinger kan nu redigeres (facilitet, tidspunkt, kontakt, noter) -
+  ikke kun aflyses og genoprettes. Tilgængeligt fra både Kalender og
+  Pedelvisning.
+- Man kan booke flere faciliteter på én gang (fx en hal og et mødelokale
+  samtidig) uden at genindtaste kontaktoplysninger - de bliver til
+  selvstændige bookinger i databasen og kan efterfølgende redigeres/aflyses
+  hver for sig (fx med forskellig sluttid).
+- Noter vises nu direkte i pedelvisningens liste (ikke kun ved udfoldning),
+  og pedelvisningen har fået en udskriftsvenlig A4-tabelvisning (knappen
+  "Udskriv", eller Ctrl+P).
+
 ## 8. Kendte begrænsninger i denne MVP
 
 - Ingen login/session - alle sider er tilgængelige uden godkendelse. Skal

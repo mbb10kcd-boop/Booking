@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+/* Pedelvisningens udskriftsformat (/pedel) - se side.tsx for den skjulte
+   print-only-tabel. Sætter A4 med rimelige margener, så listen ikke skæres
+   underligt af ved udskrivning. */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 14mm;
+  }
+  body {
+    background: #fff;
+  }
+}
