@@ -1,9 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type WheelEvent } from "react";
 import type { BookingDTO, FacilityDTO, OrganizationDTO } from "@/lib/clientTypes";
 import { formatDaDate, formatDaTime } from "@/lib/ai/messages";
-import { roundDateTimeLocalString } from "@/lib/date";
+import { roundDateTimeLocalString, stepDateTimeLocalString } from "@/lib/date";
+
+/**
+ * Museknap-rul over et <input type="datetime-local"> skal springe 10 minutter
+ * ad gangen ligesom klik på op/ned-pilene - Chrome respekterer desværre kun
+ * `step` for pilene, ikke for rul (stadig 1 minut ad gangen), så vi overtager
+ * selv rul-håndteringen og forhindrer browserens indbyggede opførsel.
+ * Kun aktiv når feltet rent faktisk har fokus, så almindeligt side-scroll
+ * hen over et ikke-fokuseret felt opfører sig som normalt.
+ */
+function handleDateTimeWheel(
+  e: WheelEvent<HTMLInputElement>,
+  value: string,
+  onChange: (next: string) => void
+) {
+  if (document.activeElement !== e.currentTarget || !value) return;
+  e.preventDefault();
+  onChange(stepDateTimeLocalString(value, e.deltaY < 0 ? 10 : -10));
+}
+
+const DEFAULT_FACILITY_COLOR = "#64748b";
 
 // Beslutning: bookinger oprettet direkte af personalet her (i modsætning til
 // dem der kommer via mailindbakken/portalen) er altid bekræftet med det
@@ -149,7 +169,10 @@ export function BookingFormModal({
 
   function addSlot() {
     setSlots((prev) => {
-      const last = prev[prev.length - 1];
+      // Ny facilitet arver dato/tidspunkt fra den FØRSTE facilitet (samme
+      // logik som når man ændrer tidspunktet på den bagefter), ikke bare den
+      // seneste - så man typisk kun skal taste tidspunktet én gang.
+      const first = prev[0];
       const usedIds = new Set(prev.map((s) => s.facilityId));
       const nextFacility = facilities.find((f) => !f.archived && !usedIds.has(f.id)) ?? facilities[0];
       return [
@@ -157,8 +180,8 @@ export function BookingFormModal({
         {
           key: newSlotKey(),
           facilityId: nextFacility?.id ?? "",
-          start: last?.start ?? "",
-          end: last?.end ?? "",
+          start: first?.start ?? "",
+          end: first?.end ?? "",
           saving: false,
         },
       ];
@@ -167,6 +190,28 @@ export function BookingFormModal({
 
   function removeSlot(key: string) {
     setSlots((prev) => prev.filter((s) => s.key !== key));
+  }
+
+  /**
+   * Håndterer at brugeren ændrer starttidspunktet for én facilitet:
+   * - sluttidspunktet for den samme facilitet foreslås automatisk som
+   *   start + 1 time (langt de fleste bookinger er netop 1 time - man kan
+   *   altid selv justere sluttiden bagefter, fx +/- et kvarter)
+   * - er det den FØRSTE facilitet (index 0) der ændres, kopieres valget
+   *   videre til de øvrige (endnu ikke oprettede) faciliteter, så man ikke
+   *   skal indtaste samme dato/tid flere gange - hver af dem forbliver dog
+   *   frit redigerbar bagefter (fx hvis hallen skal bruges længere end
+   *   mødelokalet).
+   */
+  function handleSlotStartChange(index: number, value: string) {
+    const newEnd = value ? stepDateTimeLocalString(value, 60) : "";
+    setSlots((prev) =>
+      prev.map((s, i) => {
+        if (i === index) return { ...s, start: value, end: newEnd };
+        if (index === 0 && !s.createdId) return { ...s, start: value, end: newEnd };
+        return s;
+      })
+    );
   }
 
   async function createSlot(slot: Slot, force: boolean) {
@@ -262,20 +307,27 @@ export function BookingFormModal({
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Facilitet</label>
-                <select
-                  value={editFacilityId}
-                  onChange={(e) => setEditFacilityId(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                >
-                  {facilities
-                    .filter((f) => !f.archived)
-                    .map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {f.parentId ? "  – " : ""}
-                        {f.name}
-                      </option>
-                    ))}
-                </select>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: facilities.find((f) => f.id === editFacilityId)?.color ?? DEFAULT_FACILITY_COLOR }}
+                    aria-hidden
+                  />
+                  <select
+                    value={editFacilityId}
+                    onChange={(e) => setEditFacilityId(e.target.value)}
+                    className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    {facilities
+                      .filter((f) => !f.archived)
+                      .map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.parentId ? "  – " : ""}
+                          {f.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -287,6 +339,7 @@ export function BookingFormModal({
                     value={editStart}
                     onChange={(e) => setEditStart(e.target.value)}
                     onBlur={(e) => e.target.value && setEditStart(roundDateTimeLocalString(e.target.value))}
+                    onWheel={(e) => handleDateTimeWheel(e, editStart, setEditStart)}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   />
                 </div>
@@ -298,6 +351,7 @@ export function BookingFormModal({
                     value={editEnd}
                     onChange={(e) => setEditEnd(e.target.value)}
                     onBlur={(e) => e.target.value && setEditEnd(roundDateTimeLocalString(e.target.value))}
+                    onWheel={(e) => handleDateTimeWheel(e, editEnd, setEditEnd)}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   />
                 </div>
@@ -314,14 +368,22 @@ export function BookingFormModal({
                 redigeres for sig (fx med forskellig sluttid).
               </div>
               <div className="space-y-3">
-                {slots.map((slot) => (
+                {slots.map((slot, index) => {
+                  const facilityColor = facilities.find((f) => f.id === slot.facilityId)?.color ?? DEFAULT_FACILITY_COLOR;
+                  return (
                   <div
                     key={slot.key}
                     className={`rounded-xl border p-3 space-y-2 ${
-                      slot.createdId ? "border-green-200 bg-green-50" : "border-slate-200 bg-slate-50/50"
+                      slot.createdId ? "border-green-200 bg-green-50" : "bg-slate-50/50"
                     }`}
+                    style={slot.createdId ? undefined : { borderColor: facilityColor, borderLeftWidth: 4 }}
                   >
                     <div className="flex items-center gap-2">
+                      <span
+                        className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: facilityColor }}
+                        aria-hidden
+                      />
                       <select
                         value={slot.facilityId}
                         disabled={!!slot.createdId}
@@ -353,8 +415,9 @@ export function BookingFormModal({
                         step={600}
                         value={slot.start}
                         disabled={!!slot.createdId}
-                        onChange={(e) => updateSlot(slot.key, { start: e.target.value })}
-                        onBlur={(e) => e.target.value && updateSlot(slot.key, { start: roundDateTimeLocalString(e.target.value) })}
+                        onChange={(e) => handleSlotStartChange(index, e.target.value)}
+                        onBlur={(e) => e.target.value && handleSlotStartChange(index, roundDateTimeLocalString(e.target.value))}
+                        onWheel={(e) => handleDateTimeWheel(e, slot.start, (v) => handleSlotStartChange(index, v))}
                         className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white disabled:opacity-60"
                       />
                       <input
@@ -364,6 +427,7 @@ export function BookingFormModal({
                         disabled={!!slot.createdId}
                         onChange={(e) => updateSlot(slot.key, { end: e.target.value })}
                         onBlur={(e) => e.target.value && updateSlot(slot.key, { end: roundDateTimeLocalString(e.target.value) })}
+                        onWheel={(e) => handleDateTimeWheel(e, slot.end, (v) => updateSlot(slot.key, { end: v }))}
                         className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white disabled:opacity-60"
                       />
                     </div>
@@ -387,7 +451,8 @@ export function BookingFormModal({
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <button
                 onClick={addSlot}
