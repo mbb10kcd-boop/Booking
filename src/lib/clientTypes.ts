@@ -25,6 +25,7 @@ export interface BookingDTO {
   endsAt: string;
   status: string;
   seasonGroupId: string | null;
+  recurrenceRule: { freq: "weekly"; weekday: number; until: string } | null;
   price: number | null;
   paymentStatus: string | null;
   accessCode: string | null;
