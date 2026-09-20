@@ -9,6 +9,18 @@ export const facilities = sqliteTable("facilities", {
   name: text("name").notNull(),
   description: text("description"),
   parentId: text("parent_id"), // selvreference -> underressource af en anden facilitet
+  // Hvordan denne facilitet konflikter med sin `parentId` (irrelevant for
+  // topniveau-faciliteter uden forælder). "block" (standard) er den hidtidige
+  // opførsel: booking af den ene forhindrer booking af den anden (fx
+  // badmintonbaner i træningshallen - banerne kan ikke bruges hvis hele
+  // hallen er booket, og omvendt). "warn" er en løsere kobling: de kan godt
+  // bookes samtidig (fx en klatrevæg i opvisningshallen - man kan sagtens
+  // bruge hallen mens nogen klatrer), men et forsøg på at booke den ene mens
+  // den anden allerede er booket i samme tidsrum giver en (ikke-blokerende)
+  // bemærkning, så personalet kan tage stilling til det.
+  conflictMode: text("conflict_mode", { enum: ["block", "warn"] })
+    .notNull()
+    .default("block"),
   capacity: integer("capacity"),
   openingHours: text("opening_hours", { mode: "json" }).$type<
     Record<string, { open: string; close: string } | null>
@@ -279,3 +291,4 @@ export const auditLog = sqliteTable("audit_log", {
   detail: text("detail"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
+
