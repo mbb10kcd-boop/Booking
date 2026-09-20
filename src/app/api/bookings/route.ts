@@ -98,4 +98,4 @@ export async function POST(req: NextRequest) {
     { booking, overriddenConflicts: force ? conflicts : [], warnings },
     { status: 201 }
   );
-    }
+}
