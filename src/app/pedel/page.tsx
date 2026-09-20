@@ -6,7 +6,7 @@ import { capitalizeDaDate, formatDaDateShort, formatDaTime } from "@/lib/ai/mess
 import { addDays, isoWeekNumber, localISODate, startOfWeek } from "@/lib/date";
 import { BOOKING_STATUS_CLASSES, BOOKING_STATUS_LABELS, SEASON_BADGE_CLASSES, SEASON_BADGE_LABEL } from "@/lib/statusLabels";
 import { BookingFormModal } from "@/components/BookingFormModal";
-import type { BookingDTO, FacilityDTO, OrganizationDTO } from "@/lib/clientTypes";
+import type { BookingDTO, DayNoteDTO, FacilityDTO, OrganizationDTO } from "@/lib/clientTypes";
 
 // /api/pedel/week returnerer en fuld booking-række (spredt) plus disse to
 // ekstra felter - så WeekBooking kan bruges alle steder en BookingDTO kan.
@@ -28,6 +28,10 @@ function weekRangeLabel(weekStart: Date): string {
 export default function PedelPage() {
   const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
   const [bookings, setBookings] = useState<WeekBooking[]>([]);
+  // Dagsnoter (fx "Tekniker kommer til ventilationen kl. 10") oprettet i
+  // kalenderen (se CalendarClient) - vises her så pedellerne kan se dem
+  // uden at det er en decideret booking af en facilitet.
+  const [dayNotes, setDayNotes] = useState<DayNoteDTO[]>([]);
   const [facilities, setFacilities] = useState<FacilityDTO[]>([]);
   const [organizations, setOrganizations] = useState<OrganizationDTO[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -55,6 +59,7 @@ export default function PedelPage() {
     setLoading(true);
     const data = await fetch(`/api/pedel/week?start=${weekStartStr}`).then((r) => r.json());
     setBookings(data.bookings);
+    setDayNotes(data.dayNotes ?? []);
     setLoading(false);
   }
 
@@ -79,6 +84,7 @@ export default function PedelPage() {
       dateStr,
       isToday: dateStr === todayStr,
       items: bookings.filter((b) => b.startsAt.slice(0, 10) === dateStr),
+      notes: dayNotes.filter((n) => n.date === dateStr),
     };
   });
 
@@ -129,7 +135,7 @@ export default function PedelPage() {
       <div className="p-4 space-y-5 pb-28 print:hidden">
         {loading && <div className="text-center text-slate-400 py-10">Indlæser...</div>}
         {!loading &&
-          weekDays.map(({ dateStr, isToday, items }) => (
+          weekDays.map(({ dateStr, isToday, items, notes }) => (
             <div key={dateStr}>
               <div className="flex items-center gap-2 mb-2 px-1">
                 <h2 className={`text-sm font-semibold ${isToday ? "text-blue-700" : "text-slate-700"}`}>
@@ -141,6 +147,21 @@ export default function PedelPage() {
                   </span>
                 )}
               </div>
+              {/* Dagsnoter vises altid, ligesom bookingnoter nedenfor - man skal
+                  ikke først skulle folde noget ud for at se fx at der kommer en
+                  tekniker til ventilationen. */}
+              {notes.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  {notes.map((n) => (
+                    <div
+                      key={n.id}
+                      className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 font-medium"
+                    >
+                      {n.text}
+                    </div>
+                  ))}
+                </div>
+              )}
               {items.length === 0 ? (
                 <div className="text-sm text-slate-400 px-1">Ingen aktiviteter.</div>
               ) : (
@@ -236,11 +257,20 @@ export default function PedelPage() {
           Program for uge {isoWeekNumber(weekStart)} &middot; {weekRangeLabel(weekStart)}
         </h1>
         <div className="text-xs text-black mb-4">Grenaa Idrætscenter &middot; ↻ = sæsonbooking (gentages ugentligt)</div>
-        {weekDays.map(({ dateStr, items }) => (
+        {weekDays.map(({ dateStr, items, notes }) => (
           <div key={dateStr} className="mb-4 break-inside-avoid">
             <h2 className="text-sm font-bold text-black border-b border-black pb-0.5 mb-1">
               {capitalizeDaDate(formatDaDateShort(`${dateStr}T00:00:00`))}
             </h2>
+            {notes.length > 0 && (
+              <div className="mb-1.5">
+                {notes.map((n) => (
+                  <div key={n.id} className="text-sm text-black font-semibold">
+                    &#9873; {n.text}
+                  </div>
+                ))}
+              </div>
+            )}
             {items.length === 0 ? (
               <div className="text-xs text-black mb-2">Ingen aktiviteter.</div>
             ) : (
