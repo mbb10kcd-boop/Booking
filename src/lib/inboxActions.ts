@@ -174,14 +174,28 @@ export async function editLineProposal(
   const merged = { ...line, ...updates };
   let status: "ledig" | "konflikt" = "ledig";
   let conflictBookingId: string | null = null;
-  if (merged.facilityId && merged.singleDate) {
-    const startsAt = `${merged.singleDate}T${merged.startTime}:00`;
-    const endsAt = `${merged.singleDate}T${merged.endTime}:00`;
+  // Find en repræsentativ dato at konfliktteste imod: den enkelte dato for en
+  // enkeltbooking, eller første forekomst af ugedagen for en sæsonbooking
+  // (samme fremgangsmåde som ved den oprindelige mailfortolkning i
+  // /api/inbox). Den fulde sæson konfliktcheckes alligevel linje for linje
+  // ved selve godkendelsen (se approveLine), så dette er kun en hurtig
+  // forhåndsindikation til medarbejderen.
+  let representativeDate: string | undefined = merged.singleDate ?? undefined;
+  if (!representativeDate && merged.periodStart && merged.weekday !== null && merged.weekday !== undefined) {
+    const cur = new Date(merged.periodStart + "T00:00:00");
+    while (cur.getDay() !== merged.weekday) cur.setDate(cur.getDate() + 1);
+    representativeDate = localISODate(cur);
+  }
+  if (merged.facilityId && representativeDate) {
+    const startsAt = `${representativeDate}T${merged.startTime}:00`;
+    const endsAt = `${representativeDate}T${merged.endTime}:00`;
     const conflicts = await findConflicts(merged.facilityId, startsAt, endsAt);
     if (conflicts.length > 0) {
       status = "konflikt";
       conflictBookingId = conflicts[0].id;
     }
+  } else if (!merged.facilityId) {
+    status = "konflikt";
   }
   await db
     .update(schema.bookingRequestLines)
