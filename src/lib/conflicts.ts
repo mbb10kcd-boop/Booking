@@ -1,5 +1,5 @@
 import { db, schema } from "@/db";
-import { facilitiesConflict, getAllFacilities } from "./facilities";
+import { facilitiesConflict, facilitiesWarn, getAllFacilities } from "./facilities";
 import { nowLocalDateTimeString } from "./date";
 
 export type Booking = typeof schema.bookings.$inferSelect;
@@ -30,6 +30,32 @@ export async function findConflicts(
   return allActive.filter((b) => {
     if (!overlaps(startsAt, endsAt, b.startsAt, b.endsAt)) return false;
     return facilitiesConflict(facilityId, b.facilityId, facilities);
+  });
+}
+
+/**
+ * Finder eksisterende bookinger på en LØST koblet facilitet (fx en klatrevæg
+ * under opvisningshallen, se `conflictMode` i src/db/schema.ts) der
+ * overlapper det ønskede tidsrum. Disse blokerer IKKE bookingen - kaldes
+ * separat fra `findConflicts`, så resultatet kan vises som en bemærkning i
+ * stedet for en konflikt.
+ */
+export async function findWarnings(
+  facilityId: string,
+  startsAt: string,
+  endsAt: string,
+  excludeBookingId?: string
+): Promise<Booking[]> {
+  const facilities = await getAllFacilities();
+
+  const all = await db.select().from(schema.bookings);
+  const allActive = all.filter(
+    (b) => !INACTIVE_STATUSES.has(b.status) && (!excludeBookingId || b.id !== excludeBookingId)
+  );
+
+  return allActive.filter((b) => {
+    if (!overlaps(startsAt, endsAt, b.startsAt, b.endsAt)) return false;
+    return facilitiesWarn(facilityId, b.facilityId, facilities);
   });
 }
 
