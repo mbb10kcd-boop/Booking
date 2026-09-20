@@ -1,27 +1,10 @@
 "use client";
 
-import { useState, type WheelEvent } from "react";
+import { useState } from "react";
 import type { BookingDTO, FacilityDTO, OrganizationDTO } from "@/lib/clientTypes";
 import { formatDaDate, formatDaTime } from "@/lib/ai/messages";
 import { roundDateTimeLocalString, stepDateTimeLocalString } from "@/lib/date";
-
-/**
- * Museknap-rul over et <input type="datetime-local"> skal springe 10 minutter
- * ad gangen ligesom klik på op/ned-pilene - Chrome respekterer desværre kun
- * `step` for pilene, ikke for rul (stadig 1 minut ad gangen), så vi overtager
- * selv rul-håndteringen og forhindrer browserens indbyggede opførsel.
- * Kun aktiv når feltet rent faktisk har fokus, så almindeligt side-scroll
- * hen over et ikke-fokuseret felt opfører sig som normalt.
- */
-function handleDateTimeWheel(
-  e: WheelEvent<HTMLInputElement>,
-  value: string,
-  onChange: (next: string) => void
-) {
-  if (document.activeElement !== e.currentTarget || !value) return;
-  e.preventDefault();
-  onChange(stepDateTimeLocalString(value, e.deltaY < 0 ? 10 : -10));
-}
+import { WheelStepInput } from "./WheelStepInput";
 
 const DEFAULT_FACILITY_COLOR = "#64748b";
 
@@ -184,15 +167,22 @@ export function BookingFormModal({
   // efterfølgende redigeres eller aflyses hver for sig (fx hvis hallen
   // skal bruges i 3 timer, men mødelokalet kun i 2).
   // ---------------------------------------------------------------------
-  const [slots, setSlots] = useState<Slot[]>(() => [
-    {
-      key: newSlotKey(),
-      facilityId: defaultFacilityId ?? facilities[0]?.id ?? "",
-      start: defaultStart ? toLocalInput(defaultStart) : "",
-      end: "",
-      saving: false,
-    },
-  ]);
+  const [slots, setSlots] = useState<Slot[]>(() => {
+    const start = defaultStart ? toLocalInput(defaultStart) : "";
+    return [
+      {
+        key: newSlotKey(),
+        facilityId: defaultFacilityId ?? facilities[0]?.id ?? "",
+        // Samme "start + 1 time"-forslag som handleSlotStartChange bruger,
+        // når brugeren selv skifter starttidspunktet - så en booking der er
+        // forudfyldt via dobbeltklik i kalenderen (se CalendarClient) også
+        // får et fornuftigt sluttidspunkt foreslået med det samme.
+        start,
+        end: start ? stepDateTimeLocalString(start, 60) : "",
+        saving: false,
+      },
+    ];
+  });
 
   // Sæsonbooking: når afkrydset, oprettes hver facilitet/tidsrum ovenfor ikke
   // som én booking, men som én booking PR. UGE fra facilitetens starttidspunkt
@@ -502,25 +492,21 @@ export function BookingFormModal({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Start</label>
-                  <input
+                  <WheelStepInput
                     type="datetime-local"
-                    step={600}
                     value={editStart}
-                    onChange={(e) => setEditStart(e.target.value)}
-                    onBlur={(e) => e.target.value && setEditStart(roundDateTimeLocalString(e.target.value))}
-                    onWheel={(e) => handleDateTimeWheel(e, editStart, setEditStart)}
+                    onChange={setEditStart}
+                    onRoundedBlur={roundDateTimeLocalString}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Slut</label>
-                  <input
+                  <WheelStepInput
                     type="datetime-local"
-                    step={600}
                     value={editEnd}
-                    onChange={(e) => setEditEnd(e.target.value)}
-                    onBlur={(e) => e.target.value && setEditEnd(roundDateTimeLocalString(e.target.value))}
-                    onWheel={(e) => handleDateTimeWheel(e, editEnd, setEditEnd)}
+                    onChange={setEditEnd}
+                    onRoundedBlur={roundDateTimeLocalString}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   />
                 </div>
@@ -579,24 +565,20 @@ export function BookingFormModal({
                       )}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      <input
+                      <WheelStepInput
                         type="datetime-local"
-                        step={600}
                         value={slot.start}
                         disabled={!!slot.createdId}
-                        onChange={(e) => handleSlotStartChange(index, e.target.value)}
-                        onBlur={(e) => e.target.value && handleSlotStartChange(index, roundDateTimeLocalString(e.target.value))}
-                        onWheel={(e) => handleDateTimeWheel(e, slot.start, (v) => handleSlotStartChange(index, v))}
+                        onChange={(v) => handleSlotStartChange(index, v)}
+                        onRoundedBlur={roundDateTimeLocalString}
                         className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white disabled:opacity-60"
                       />
-                      <input
+                      <WheelStepInput
                         type="datetime-local"
-                        step={600}
                         value={slot.end}
                         disabled={!!slot.createdId}
-                        onChange={(e) => updateSlot(slot.key, { end: e.target.value })}
-                        onBlur={(e) => e.target.value && updateSlot(slot.key, { end: roundDateTimeLocalString(e.target.value) })}
-                        onWheel={(e) => handleDateTimeWheel(e, slot.end, (v) => updateSlot(slot.key, { end: v }))}
+                        onChange={(v) => updateSlot(slot.key, { end: v })}
+                        onRoundedBlur={roundDateTimeLocalString}
                         className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white disabled:opacity-60"
                       />
                     </div>
