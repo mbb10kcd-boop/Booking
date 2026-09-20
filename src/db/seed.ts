@@ -52,32 +52,71 @@ async function main() {
   `);
 
   // -------------------------------------------------------------------
-  // Faciliteter
+  // Faciliteter - centerets rigtige facilitetsopbygning (opgivet af Martin):
+  //
+  //   Opvisningshallen
+  //   - Klatrevæg          (LØST koblet - "warn": kan bookes samtidig med
+  //                          Opvisningshallen, men giver en bemærkning, da
+  //                          nogle gæster foretrækker at have hallen for sig
+  //                          selv mens der klatres)
+  //   Træningshallen
+  //   - Badmintonbane 1-6  (HÅRDT koblet - "block", standardopførsel: er
+  //                          hele træningshallen booket, kan banerne ikke
+  //                          bookes, og omvendt - men banerne blokerer ikke
+  //                          hinanden indbyrdes)
+  //   Multisalen
+  //   Mødelokale 1-4
+  //   Klubsekretariatet
+  //
+  // Se conflictMode-kolonnen i src/db/schema.ts og facilityRelation() i
+  // src/lib/facilities.ts for selve konflikt-/advarselslogikken.
   // -------------------------------------------------------------------
-  const hal1 = { id: id("fac"), name: "Hal 1", capacity: 200, pricePerHour: 0, color: "#2563eb", sortOrder: 1 };
-  const hal1a = { id: id("fac"), name: "Hal 1A", parentId: hal1.id, capacity: 80, color: "#3b82f6", sortOrder: 2 };
-  const hal1b = { id: id("fac"), name: "Hal 1B", parentId: hal1.id, capacity: 80, color: "#3b82f6", sortOrder: 3 };
-  const hal2 = { id: id("fac"), name: "Hal 2", capacity: 150, color: "#059669", sortOrder: 4 };
-  const sal2 = { id: id("fac"), name: "Sal 2", capacity: 40, color: "#7c3aed", sortOrder: 5 };
-  const badminton = { id: id("fac"), name: "Badmintonbaner", capacity: 16, color: "#ea580c", sortOrder: 6 };
-  const baner = [1, 2, 3, 4].map((n) => ({
+  const opvisningshallen = { id: id("fac"), name: "Opvisningshallen", capacity: 400, color: "#2563eb", sortOrder: 1 };
+  const klatrevaeg = {
     id: id("fac"),
-    name: `Bane ${n}`,
-    parentId: badminton.id,
+    name: "Klatrevæg",
+    parentId: opvisningshallen.id,
+    conflictMode: "warn" as const,
+    capacity: 10,
+    color: "#a855f7",
+    sortOrder: 2,
+  };
+  const traeningshallen = { id: id("fac"), name: "Træningshallen", capacity: 150, color: "#059669", sortOrder: 3 };
+  const badmintonbaner = [1, 2, 3, 4, 5, 6].map((n) => ({
+    id: id("fac"),
+    name: `Badmintonbane ${n}`,
+    parentId: traeningshallen.id,
     capacity: 4,
     pricePerHour: 120,
     requiresPayment: true,
     color: "#f97316",
-    sortOrder: 6 + n,
+    sortOrder: 3 + n,
   }));
-  const moedelokale = { id: id("fac"), name: "Mødelokale 1", capacity: 12, color: "#64748b", sortOrder: 11 };
+  const multisalen = { id: id("fac"), name: "Multisalen", capacity: 60, color: "#7c3aed", sortOrder: 10 };
+  const moedelokaler = [1, 2, 3, 4].map((n) => ({
+    id: id("fac"),
+    name: `Mødelokale ${n}`,
+    capacity: 12,
+    color: "#64748b",
+    sortOrder: 10 + n,
+  }));
+  const klubsekretariatet = { id: id("fac"), name: "Klubsekretariatet", capacity: 6, color: "#475569", sortOrder: 15 };
 
-  const allFacilities = [hal1, hal1a, hal1b, hal2, sal2, badminton, ...baner, moedelokale];
+  const allFacilities = [
+    opvisningshallen,
+    klatrevaeg,
+    traeningshallen,
+    ...badmintonbaner,
+    multisalen,
+    ...moedelokaler,
+    klubsekretariatet,
+  ];
   for (const f of allFacilities) {
     await db.insert(schema.facilities).values({
       id: f.id,
       name: f.name,
       parentId: (f as any).parentId ?? null,
+      conflictMode: (f as any).conflictMode ?? "block",
       capacity: f.capacity,
       pricePerHour: (f as any).pricePerHour ?? 0,
       requiresPayment: (f as any).requiresPayment ?? false,
@@ -149,26 +188,37 @@ async function main() {
   }
 
   await addBooking({
-    facilityId: badminton.id,
-    title: "Motionsbadminton - 4 baner",
+    facilityId: badmintonbaner[0].id,
+    title: "Motionsbadminton",
     startsAt: `${todayIso}T08:00:00`,
     endsAt: `${todayIso}T09:30:00`,
   });
   await addBooking({
-    facilityId: hal1.id,
+    facilityId: opvisningshallen.id,
     title: "Skolearrangement",
     startsAt: `${todayIso}T10:00:00`,
     endsAt: `${todayIso}T12:00:00`,
   });
+  // Demo af den nye LØSE kobling: klatrevæggen bookes samtidig med at
+  // Opvisningshallen bruges til skolearrangementet ovenfor - det er
+  // tilladt (blokerer ikke), men vil give en bemærkning hvis man
+  // efterfølgende forsøger at booke enten hallen eller klatrevæggen i
+  // dette tidsrum (se facilitiesWarn() i src/lib/facilities.ts).
   await addBooking({
-    facilityId: hal2.id,
+    facilityId: klatrevaeg.id,
+    title: "Klatreklub - fri klatring",
+    startsAt: `${todayIso}T10:00:00`,
+    endsAt: `${todayIso}T12:00:00`,
+  });
+  await addBooking({
+    facilityId: opvisningshallen.id,
     title: "GIF Håndbold",
     organizationId: gifHaandbold.id,
     startsAt: `${todayIso}T14:00:00`,
     endsAt: `${todayIso}T16:00:00`,
   });
   await addBooking({
-    facilityId: hal1.id,
+    facilityId: traeningshallen.id,
     title: "GIF Gymnastik",
     organizationId: gifGymnastik.id,
     startsAt: `${todayIso}T18:00:00`,
@@ -176,7 +226,7 @@ async function main() {
   });
 
   // -------------------------------------------------------------------
-  // Eksisterende sæsonbooking: GIF Håndbold, tirsdage 17-19 i Hal 1
+  // Eksisterende sæsonbooking: GIF Håndbold, tirsdage 17-19 i Træningshallen
   // (skaber en KONFLIKT når sæsonmailen fra GIF Gymnastik fortolkes nedenfor)
   // -------------------------------------------------------------------
   const seasonStart = new Date(today.getFullYear(), 8, 1); // 1. september i indeværende år
@@ -189,7 +239,7 @@ async function main() {
   let count = 0;
   while (cursor.getTime() <= seasonEnd.getTime() && count < 30) {
     await addBooking({
-      facilityId: hal1.id,
+      facilityId: traeningshallen.id,
       title: "GIF Håndbold - sæsontræning",
       organizationId: gifHaandbold.id,
       startsAt: `${isoDate(cursor)}T17:00:00`,
@@ -222,9 +272,9 @@ async function main() {
 
   const seasonMail = `GIF Gymnastik ønsker følgende sæsonbookinger for den kommende sæson:
 
-Mandag 16.00-18.00 i Hal 1
-Tirsdag 17.00-19.00 i Hal 1
-Onsdag 18.00-20.00 i Hal 2
+Mandag 16.00-18.00 i Opvisningshallen
+Tirsdag 17.00-19.00 i Træningshallen
+Onsdag 18.00-20.00 i Multisalen
 
 Periode: ${String(seasonStart.getDate()).padStart(2, "0")}/${String(seasonStart.getMonth() + 1).padStart(2, "0")}-${String(seasonEnd.getDate()).padStart(2, "0")}/${String(seasonEnd.getMonth() + 1).padStart(2, "0")}
 
@@ -233,12 +283,12 @@ Lise Andersen
 lise@gifgymnastik.dk
 23456789`;
 
-  // Bruger en facilitet uden eksisterende bookinger i dag (Sal 2), så denne
-  // demo-mail pålideligt viser "ledig" uanset hvilken ugedag scriptet køres på
-  // (undgår at kollidere med dagens eksempelprogram nedenfor).
+  // Bruger en facilitet uden eksisterende bookinger i dag (Mødelokale 2), så
+  // denne demo-mail pålideligt viser "ledig" uanset hvilken ugedag scriptet
+  // køres på (undgår at kollidere med dagens eksempelprogram ovenfor).
   const singleMailFree = `Hej
 
-Kan vi leje Sal 2 lørdag fra kl. 14-16?
+Kan vi leje Mødelokale 2 lørdag fra kl. 14-16?
 
 Mvh
 Anders Jensen
@@ -334,8 +384,20 @@ anders.jensen@gmail.com
   // -------------------------------------------------------------------
   await db.insert(schema.infoScreens).values([
     { id: id("screen"), name: "Reception", location: "Indgang", facilityIds: [], layout: "standard" },
-    { id: id("screen"), name: "Hal 1", location: "Ved Hal 1", facilityIds: [hal1.id, hal1a.id, hal1b.id], layout: "enkelt_facilitet" },
-    { id: id("screen"), name: "Hal 2", location: "Ved Hal 2", facilityIds: [hal2.id], layout: "enkelt_facilitet" },
+    {
+      id: id("screen"),
+      name: "Opvisningshallen",
+      location: "Ved Opvisningshallen",
+      facilityIds: [opvisningshallen.id, klatrevaeg.id],
+      layout: "enkelt_facilitet",
+    },
+    {
+      id: id("screen"),
+      name: "Træningshallen",
+      location: "Ved Træningshallen",
+      facilityIds: [traeningshallen.id, ...badmintonbaner.map((b) => b.id)],
+      layout: "enkelt_facilitet",
+    },
   ]);
 
   // -------------------------------------------------------------------
@@ -351,7 +413,7 @@ anders.jensen@gmail.com
   });
 
   console.log("\nSeed færdig!");
-  console.log(`Hal 1 id: ${hal1.id}`);
+  console.log(`Opvisningshallen id: ${opvisningshallen.id}`);
 }
 
 main()
