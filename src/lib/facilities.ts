@@ -37,24 +37,81 @@ export function getDescendantIds(id: string, facilities: Facility[]): string[] {
   return result;
 }
 
+export type FacilityRelation = "same" | "block" | "warn" | "none";
+
+/**
+ * Følger forælder-kæden fra `descendantId` op mod roden og undersøger om
+ * `ancestorId` findes i den. Returnerer den "løseste" konflikt-tilstand
+ * fundet undervejs (dvs. "warn" hvis blot ét led på vejen er markeret som
+ * "warn" - fx en klatrevæg under opvisningshallen), eller `null` hvis
+ * `ancestorId` slet ikke er en forfader til `descendantId`.
+ */
+function pathRelation(
+  descendantId: string,
+  ancestorId: string,
+  parentMap: Map<string, string | null>,
+  facilityMap: Map<string, Facility>
+): "block" | "warn" | null {
+  let current: string | null = descendantId;
+  let mode: "block" | "warn" = "block";
+  const seen = new Set<string>();
+  while (current) {
+    if (seen.has(current)) return null; // beskyt mod cirkulære referencer
+    seen.add(current);
+    if (facilityMap.get(current)?.conflictMode === "warn") mode = "warn";
+    const parent: string | null = parentMap.get(current) ?? null;
+    if (parent === ancestorId) return mode;
+    current = parent;
+  }
+  return null;
+}
+
+/**
+ * Relationen mellem to faciliteter mht. booking-konflikt: "same" (samme
+ * facilitet), "block" (den ene er forælder/bedsteforælder til den anden, og
+ * mindst ét led i kæden er en hård kobling - fx badmintonbaner i
+ * træningshallen), "warn" (samme slægtskab, men et løst koblet led
+ * undervejs - fx en klatrevæg i opvisningshallen: kan bookes samtidig, men
+ * bør give en bemærkning), eller "none" (ingen relation - fx to søskende-
+ * underressourcer som Hal 1A og Hal 1B, der aldrig blokerer hinanden).
+ */
+export function facilityRelation(
+  idA: string,
+  idB: string,
+  facilities: Facility[]
+): FacilityRelation {
+  if (idA === idB) return "same";
+  const parentMap = buildParentMap(facilities);
+  const facilityMap = new Map(facilities.map((f) => [f.id, f]));
+  const bUnderA = pathRelation(idB, idA, parentMap, facilityMap);
+  if (bUnderA) return bUnderA;
+  const aUnderB = pathRelation(idA, idB, parentMap, facilityMap);
+  if (aUnderB) return aUnderB;
+  return "none";
+}
+
 /**
  * To faciliteter "blokerer" hinanden hvis den ene er forælder/bedsteforælder
- * til den anden (eller de er samme facilitet). Søskende-underressourcer
- * (Hal 1A og Hal 1B) blokerer IKKE hinanden.
+ * til den anden (eller de er samme facilitet), og koblingen er "block".
+ * Søskende-underressourcer (Hal 1A og Hal 1B) blokerer IKKE hinanden.
  */
 export function facilitiesConflict(
   idA: string,
   idB: string,
   facilities: Facility[]
 ): boolean {
-  if (idA === idB) return true;
-  const parentMap = buildParentMap(facilities);
-  const ancestorsOfA = new Set(getAncestorChain(idA, parentMap));
-  const ancestorsOfB = new Set(getAncestorChain(idB, parentMap));
-  // Konflikt hvis A er forfader til B eller omvendt
-  if (ancestorsOfB.has(idA)) return true;
-  if (ancestorsOfA.has(idB)) return true;
-  return false;
+  const relation = facilityRelation(idA, idB, facilities);
+  return relation === "same" || relation === "block";
+}
+
+/**
+ * To faciliteter er løst koblet ("warn") hvis de er i familie, men
+ * relationen er markeret som en bemærkning frem for en hård blokering (fx
+ * klatrevæg/opvisningshal). Bruges til at vise en ikke-blokerende note ved
+ * booking, uden at forhindre den.
+ */
+export function facilitiesWarn(idA: string, idB: string, facilities: Facility[]): boolean {
+  return facilityRelation(idA, idB, facilities) === "warn";
 }
 
 export async function getFacilityPath(id: string, facilities: Facility[]): Promise<string> {
