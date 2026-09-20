@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { BookingDTO, FacilityDTO, OrganizationDTO } from "@/lib/clientTypes";
+import type { BookingDTO, DayNoteDTO, FacilityDTO, OrganizationDTO } from "@/lib/clientTypes";
 import {
   BOOKING_STATUS_CLASSES,
   BOOKING_STATUS_LABELS,
@@ -11,8 +11,9 @@ import {
   weekdayName,
 } from "@/lib/statusLabels";
 import { formatDaDate, formatDaTime } from "@/lib/ai/messages";
-import { localISODate, nowLocalDateTimeString } from "@/lib/date";
+import { localISODate, nowLocalDateTimeString, roundDateTimeLocalString } from "@/lib/date";
 import { BookingFormModal } from "./BookingFormModal";
+import { DayNoteModal } from "./DayNoteModal";
 
 type ViewMode = "liste" | "uge" | "facilitet" | "maaned";
 
@@ -46,13 +47,22 @@ export function CalendarClient({
   const [facilities] = useState(initialFacilities);
   const [organizations] = useState(initialOrganizations);
   const [bookings, setBookings] = useState<BookingDTO[]>([]);
+  const [dayNotes, setDayNotes] = useState<DayNoteDTO[]>([]);
   const [view, setView] = useState<ViewMode>("uge");
   const [anchor, setAnchor] = useState(new Date());
   const [selectedFacilityIds, setSelectedFacilityIds] = useState<Set<string>>(
     new Set(initialFacilities.map((f) => f.id))
   );
   const [showModal, setShowModal] = useState(false);
+  // Forudfyldes når man dobbeltklikker en dag i kalenderen (og ev. en
+  // facilitet, i facilitetsvisningen) - se `openNewBookingFor` herunder.
+  const [modalDefaultStart, setModalDefaultStart] = useState<string | undefined>(undefined);
+  const [modalDefaultFacilityId, setModalDefaultFacilityId] = useState<string | undefined>(undefined);
   const [selectedBooking, setSelectedBooking] = useState<BookingDTO | null>(null);
+  // Dagsnote der redigeres/oprettes (fx "tekniker kommer til ventilationen") -
+  // se DayNoteModal. `date` er sat når man opretter en NY note for en dag,
+  // `note` er sat i stedet når man redigerer en eksisterende.
+  const [noteModal, setNoteModal] = useState<{ date: string; note?: DayNoteDTO } | null>(null);
   const [loading, setLoading] = useState(false);
 
   const rangeStart = useMemo(() => {
@@ -84,14 +94,49 @@ export function CalendarClient({
     setLoading(false);
   }
 
+  async function loadDayNotes() {
+    const params = new URLSearchParams({
+      from: localISODate(rangeStart),
+      to: localISODate(addDays(rangeEnd, -1)),
+    });
+    const res = await fetch(`/api/day-notes?${params}`);
+    setDayNotes(await res.json());
+  }
+
   useEffect(() => {
     loadBookings();
+    loadDayNotes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, anchor]);
 
   const visibleBookings = bookings
     .filter((b) => selectedFacilityIds.has(b.facilityId))
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+
+  function notesForDay(dateStr: string): DayNoteDTO[] {
+    return dayNotes.filter((n) => n.date === dateStr);
+  }
+
+  /**
+   * Åbner "Ny booking"-formularen forudfyldt med `dateStr` (og ev. en
+   * facilitet) - brugt når man dobbeltklikker en dag i kalenderen. Det
+   * dækker det almindelige arbejdsmønster centeret beskrev: nogen ringer og
+   * ønsker en bestemt dag, man blader kalenderen frem til dagen og
+   * dobbeltklikker i stedet for at skulle taste datoen ind manuelt.
+   * Klokkeslættet forudfyldes med det nuværende tidspunkt (rundet til
+   * nærmeste 10 minutter) - blot som et fornuftigt udgangspunkt, det
+   * justeres frit i formularen bagefter.
+   */
+  function openNewBookingFor(dateStr: string, facilityId?: string) {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    const rounded = roundDateTimeLocalString(`${dateStr}T${hh}:${mm}`);
+    setModalDefaultStart(`${rounded}:00`);
+    setModalDefaultFacilityId(facilityId);
+    setSelectedBooking(null);
+    setShowModal(true);
+  }
 
   function facilityName(id: string) {
     return facilities.find((f) => f.id === id)?.name ?? "Ukendt";
@@ -180,6 +225,8 @@ export function CalendarClient({
           </div>
           <button
             onClick={() => {
+              setModalDefaultStart(undefined);
+              setModalDefaultFacilityId(undefined);
               setSelectedBooking(null);
               setShowModal(true);
             }}
@@ -193,7 +240,7 @@ export function CalendarClient({
 
         <div className="text-xs text-slate-400 mb-3">
           {SEASON_BADGE_LABEL} markerer sæsonbookinger (gentages ugentligt) - så en booking, der afviger fra den
-          faste sæson, er nem at få øje på.
+          faste sæson, er nem at få øje på. Dobbeltklik en dag for at oprette en booking den dag.
         </div>
 
         {view === "liste" && (
@@ -206,6 +253,10 @@ export function CalendarClient({
             facilityName={facilityName}
             facilityColor={facilityColor}
             onSelect={setSelectedBooking}
+            notesForDay={notesForDay}
+            onAddNote={(dateStr) => setNoteModal({ date: dateStr })}
+            onEditNote={(note) => setNoteModal({ date: note.date, note })}
+            onDayDoubleClick={openNewBookingFor}
           />
         )}
         {view === "facilitet" && (
@@ -214,6 +265,7 @@ export function CalendarClient({
             facilities={facilities.filter((f) => !f.archived && selectedFacilityIds.has(f.id))}
             bookings={visibleBookings}
             onSelect={setSelectedBooking}
+            onDayDoubleClick={openNewBookingFor}
           />
         )}
         {view === "maaned" && (
@@ -222,6 +274,10 @@ export function CalendarClient({
             bookings={visibleBookings}
             facilityName={facilityName}
             onSelect={setSelectedBooking}
+            notesForDay={notesForDay}
+            onAddNote={(dateStr) => setNoteModal({ date: dateStr })}
+            onEditNote={(note) => setNoteModal({ date: note.date, note })}
+            onDayDoubleClick={openNewBookingFor}
           />
         )}
       </div>
@@ -230,6 +286,8 @@ export function CalendarClient({
         <BookingFormModal
           facilities={facilities}
           organizations={organizations}
+          defaultStart={modalDefaultStart}
+          defaultFacilityId={modalDefaultFacilityId}
           onClose={() => setShowModal(false)}
           onSaved={() => {
             setShowModal(false);
@@ -248,6 +306,22 @@ export function CalendarClient({
           onChanged={() => {
             setSelectedBooking(null);
             loadBookings();
+          }}
+        />
+      )}
+
+      {noteModal && (
+        <DayNoteModal
+          date={noteModal.date}
+          note={noteModal.note}
+          onClose={() => setNoteModal(null)}
+          onSaved={() => {
+            setNoteModal(null);
+            loadDayNotes();
+          }}
+          onDeleted={() => {
+            setNoteModal(null);
+            loadDayNotes();
           }}
         />
       )}
@@ -272,6 +346,9 @@ function BookingCard({
   return (
     <button
       onClick={() => onSelect(booking)}
+      // Forhindrer at et dobbeltklik på et booking-kort bobler op til
+      // dagscellen og fejlagtigt åbner "Ny booking" for dagen ovenpå.
+      onDoubleClick={(e) => e.stopPropagation()}
       className={`w-full text-left rounded-lg border px-2.5 py-1.5 text-xs hover:shadow-sm transition-shadow ${
         BOOKING_STATUS_CLASSES[booking.status] ?? "bg-slate-100 border-slate-300"
       } ${isSeason ? SEASON_ACCENT_CLASS : ""}`}
@@ -370,12 +447,20 @@ function WeekView({
   facilityName,
   facilityColor,
   onSelect,
+  notesForDay,
+  onAddNote,
+  onEditNote,
+  onDayDoubleClick,
 }: {
   weekStart: Date;
   bookings: BookingDTO[];
   facilityName: (id: string) => string;
   facilityColor: (id: string) => string;
   onSelect: (b: BookingDTO) => void;
+  notesForDay: (dateStr: string) => DayNoteDTO[];
+  onAddNote: (dateStr: string) => void;
+  onEditNote: (note: DayNoteDTO) => void;
+  onDayDoubleClick: (dateStr: string) => void;
 }) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   return (
@@ -387,10 +472,32 @@ function WeekView({
           .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
         const isToday = dayStr === localISODate();
         return (
-          <div key={dayStr} className="rounded-2xl border border-slate-200 bg-white overflow-hidden min-h-[140px]">
-            <div className={`px-3 py-2 text-xs font-semibold border-b border-slate-100 ${isToday ? "bg-blue-50 text-blue-700" : "text-slate-500"}`}>
-              {WEEKDAY_SHORT[i]} {d.getDate()}/{d.getMonth() + 1}
+          <div
+            key={dayStr}
+            onDoubleClick={() => onDayDoubleClick(dayStr)}
+            title="Dobbeltklik for at oprette en booking denne dag"
+            className="rounded-2xl border border-slate-200 bg-white overflow-hidden min-h-[140px] cursor-pointer"
+          >
+            <div
+              className={`px-3 py-2 text-xs font-semibold border-b border-slate-100 flex items-center justify-between ${
+                isToday ? "bg-blue-50 text-blue-700" : "text-slate-500"
+              }`}
+            >
+              <span>
+                {WEEKDAY_SHORT[i]} {d.getDate()}/{d.getMonth() + 1}
+              </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddNote(dayStr);
+                }}
+                title="Tilføj dagsnote"
+                className="text-slate-400 hover:text-amber-600 leading-none px-1"
+              >
+                +note
+              </button>
             </div>
+            <DayNoteBadges notes={notesForDay(dayStr)} onEditNote={onEditNote} />
             <div className="p-2 space-y-1.5">
               {dayBookings.length === 0 && <div className="text-[11px] text-slate-300 px-1 py-2">Ledig</div>}
               {dayBookings.map((b) => (
@@ -405,10 +512,36 @@ function WeekView({
 }
 
 /**
+ * Dagsnoter (fx "Tekniker kommer til ventilationen kl. 10") vist som gule
+ * bjælker øverst i en dagscelle - genbruges af både uge- og månedsvisningen.
+ * Klik åbner noten til redigering/sletning (se DayNoteModal).
+ */
+function DayNoteBadges({ notes, onEditNote }: { notes: DayNoteDTO[]; onEditNote: (note: DayNoteDTO) => void }) {
+  if (notes.length === 0) return null;
+  return (
+    <div className="px-1.5 pt-1.5 space-y-1">
+      {notes.map((n) => (
+        <button
+          key={n.id}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEditNote(n);
+          }}
+          className="w-full text-left rounded-md bg-amber-50 border border-amber-200 px-1.5 py-1 text-[11px] text-amber-800 hover:bg-amber-100"
+          title="Rediger dagsnote"
+        >
+          {n.text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Ressourcevisning: hver valgt facilitet får sin egen ugeblok med 7
  * dagskolonner ved siden af hinanden - så man fx kan sammenligne Multisalen,
  * Opvisningshallen og Træningshallen for samme uge på én gang, ligesom i
- * GIBBS' ressourcekalender. Hvilke faciliteter der vises styres af "Vis
+ * GIBBS' kalender. Hvilke faciliteter der vises styres af "Vis
  * faciliteter"-filteret i venstre side; man blader i ugerne med
  * pil-knapperne ved siden af visningsvælgeren.
  */
@@ -417,11 +550,13 @@ function FacilityWeekView({
   facilities,
   bookings,
   onSelect,
+  onDayDoubleClick,
 }: {
   weekStart: Date;
   facilities: FacilityDTO[];
   bookings: BookingDTO[];
   onSelect: (b: BookingDTO) => void;
+  onDayDoubleClick: (dateStr: string, facilityId: string) => void;
 }) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
@@ -452,7 +587,9 @@ function FacilityWeekView({
                 return (
                   <div
                     key={dayStr}
-                    className={`rounded-xl border overflow-hidden min-h-[220px] ${
+                    onDoubleClick={() => onDayDoubleClick(dayStr, f.id)}
+                    title="Dobbeltklik for at oprette en booking af denne facilitet denne dag"
+                    className={`rounded-xl border overflow-hidden min-h-[220px] cursor-pointer ${
                       isToday ? "border-blue-300 bg-blue-50/40" : "border-slate-200 bg-white"
                     }`}
                   >
@@ -469,6 +606,7 @@ function FacilityWeekView({
                         <button
                           key={b.id}
                           onClick={() => onSelect(b)}
+                          onDoubleClick={(e) => e.stopPropagation()}
                           className={`w-full text-left rounded-lg px-1.5 py-1 text-[10px] border hover:shadow-sm transition-shadow ${
                             BOOKING_STATUS_CLASSES[b.status] ?? "bg-slate-100 border-slate-300"
                           } ${b.seasonGroupId ? SEASON_ACCENT_CLASS : ""}`}
@@ -499,11 +637,19 @@ function MonthView({
   bookings,
   facilityName,
   onSelect,
+  notesForDay,
+  onAddNote,
+  onEditNote,
+  onDayDoubleClick,
 }: {
   monthStart: Date;
   bookings: BookingDTO[];
   facilityName: (id: string) => string;
   onSelect: (b: BookingDTO) => void;
+  notesForDay: (dateStr: string) => DayNoteDTO[];
+  onAddNote: (dateStr: string) => void;
+  onEditNote: (note: DayNoteDTO) => void;
+  onDayDoubleClick: (dateStr: string) => void;
 }) {
   const firstDayOffset = (monthStart.getDay() + 6) % 7;
   const daysInMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).getDate();
@@ -526,15 +672,47 @@ function MonthView({
           if (!d) return <div key={i} className="border-b border-r border-slate-100 min-h-[90px] bg-slate-50/50" />;
           const dayStr = localISODate(d);
           const dayBookings = bookings.filter((b) => b.startsAt.slice(0, 10) === dayStr);
+          const notes = notesForDay(dayStr);
           const isToday = dayStr === localISODate();
           return (
-            <div key={i} className="border-b border-r border-slate-100 min-h-[90px] p-1.5">
-              <div className={`text-xs font-medium mb-1 ${isToday ? "text-blue-600" : "text-slate-500"}`}>{d.getDate()}</div>
+            <div
+              key={i}
+              onDoubleClick={() => onDayDoubleClick(dayStr)}
+              title="Dobbeltklik for at oprette en booking denne dag"
+              className="border-b border-r border-slate-100 min-h-[90px] p-1.5 cursor-pointer"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <div className={`text-xs font-medium ${isToday ? "text-blue-600" : "text-slate-500"}`}>{d.getDate()}</div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAddNote(dayStr);
+                  }}
+                  title="Tilføj dagsnote"
+                  className="text-[10px] text-slate-300 hover:text-amber-600 leading-none"
+                >
+                  +note
+                </button>
+              </div>
+              {notes.map((n) => (
+                <button
+                  key={n.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEditNote(n);
+                  }}
+                  className="w-full text-left truncate rounded bg-amber-50 border border-amber-200 px-1 py-0.5 text-[9px] text-amber-800 mb-0.5"
+                  title={n.text}
+                >
+                  {n.text}
+                </button>
+              ))}
               <div className="space-y-1">
                 {dayBookings.slice(0, 3).map((b) => (
                   <button
                     key={b.id}
                     onClick={() => onSelect(b)}
+                    onDoubleClick={(e) => e.stopPropagation()}
                     className={`w-full text-left truncate rounded px-1 py-0.5 text-[10px] border ${BOOKING_STATUS_CLASSES[b.status]} ${
                       b.seasonGroupId ? SEASON_ACCENT_CLASS : ""
                     }`}
