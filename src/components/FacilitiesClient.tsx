@@ -8,6 +8,7 @@ export function FacilitiesClient({ initialFacilities }: { initialFacilities: Fac
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [parentId, setParentId] = useState("");
+  const [conflictMode, setConflictMode] = useState<"block" | "warn">("block");
   const [capacity, setCapacity] = useState("");
   const [price, setPrice] = useState("0");
   const [requiresPayment, setRequiresPayment] = useState(false);
@@ -33,6 +34,7 @@ export function FacilitiesClient({ initialFacilities }: { initialFacilities: Fac
       body: JSON.stringify({
         name,
         parentId: parentId || null,
+        conflictMode: parentId ? conflictMode : "block",
         capacity: capacity ? Number(capacity) : null,
         pricePerHour: Number(price) || 0,
         requiresPayment,
@@ -41,6 +43,7 @@ export function FacilitiesClient({ initialFacilities }: { initialFacilities: Fac
     setSaving(false);
     setName("");
     setParentId("");
+    setConflictMode("block");
     setCapacity("");
     setPrice("0");
     setRequiresPayment(false);
@@ -77,6 +80,21 @@ export function FacilitiesClient({ initialFacilities }: { initialFacilities: Fac
                 ))}
               </select>
             </div>
+            {parentId && (
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Konflikt med den overordnede facilitet
+                </label>
+                <select
+                  value={conflictMode}
+                  onChange={(e) => setConflictMode(e.target.value as "block" | "warn")}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="block">Blokerer hinanden (standard) - fx en badmintonbane i træningshallen</option>
+                  <option value="warn">Kan bookes samtidig, men giv en bemærkning - fx en klatrevæg i opvisningshallen</option>
+                </select>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Kapacitet</label>
               <input value={capacity} onChange={(e) => setCapacity(e.target.value)} type="number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
@@ -121,6 +139,14 @@ export function FacilitiesClient({ initialFacilities }: { initialFacilities: Fac
                     <div className="text-sm text-slate-700">
                       {c.name}
                       {c.requiresPayment ? ` · ${c.pricePerHour} kr/time` : ""}
+                      {c.conflictMode === "warn" && (
+                        <span
+                          className="ml-2 inline-block text-[11px] px-1.5 py-0.5 rounded-full border bg-amber-100 text-amber-700 border-amber-300"
+                          title="Blokerer ikke - giver kun en bemærkning ved booking"
+                        >
+                          Advarsel, ikke blokering
+                        </span>
+                      )}
                     </div>
                     <button onClick={() => archiveFacility(c.id)} className="text-xs text-slate-400 hover:text-red-600">
                       Arkivér
