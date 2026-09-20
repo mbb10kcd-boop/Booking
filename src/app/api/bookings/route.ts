@@ -3,7 +3,7 @@ import { db, schema } from "@/db";
 import { and, eq, gte, lte, or } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
-import { findConflicts } from "@/lib/conflicts";
+import { findConflicts, findWarnings } from "@/lib/conflicts";
 import { confirmationMessage } from "@/lib/ai/messages";
 
 export async function GET(req: NextRequest) {
@@ -90,5 +90,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ booking, overriddenConflicts: force ? conflicts : [] }, { status: 201 });
-}
+  // Løst koblede faciliteter (fx klatrevæg/opvisningshal) blokerer ikke
+  // bookingen, men flages som en bemærkning til den der booker.
+  const warnings = await findWarnings(facilityId, startsAt, endsAt);
+
+  return NextResponse.json(
+    { booking, overriddenConflicts: force ? conflicts : [], warnings },
+    { status: 201 }
+  );
+    }
