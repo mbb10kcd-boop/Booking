@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
   const facilities = await db.select().from(schema.facilities);
   const bookings = await db.select().from(schema.bookings);
   const orgs = await db.select().from(schema.organizations);
+  const notes = await db.select().from(schema.dayNotes);
 
   const weekBookings = bookings
     .filter((b) => {
@@ -36,5 +37,11 @@ export async function GET(req: NextRequest) {
       organizationName: orgs.find((o) => o.id === b.organizationId)?.name,
     }));
 
-  return NextResponse.json({ weekStart: weekStartStr, bookings: weekBookings });
+  // Dagsnoter for ugen (fx "tekniker kommer til ventilationen") - så
+  // pedellerne ser dem på pedelvisningen uden at det er en decideret booking.
+  const weekDayNotes = notes
+    .filter((n) => n.date >= weekStartStr && n.date <= weekEndStr)
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+
+  return NextResponse.json({ weekStart: weekStartStr, bookings: weekBookings, dayNotes: weekDayNotes });
 }
