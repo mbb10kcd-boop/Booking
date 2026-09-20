@@ -7,10 +7,19 @@ import { randomUUID } from "crypto";
 import * as schema from "./schema";
 import { parseBookingMail } from "../lib/ai/mailParser";
 
-const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "grenaa.db");
-const dir = path.dirname(dbPath);
-if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-const sqlite = createClient({ url: `file:${dbPath}` });
+// Samme opløsning af databaseforbindelse som src/db/index.ts: brug en ekstern
+// libsql/Turso-database når TURSO_DATABASE_URL er sat (persistent på tværs af
+// deploys), ellers en lokal fil (kun til udvikling/test - se advarslen i
+// src/db/index.ts om at Render's gratis plan ikke har en persistent disk).
+const remoteUrl = process.env.TURSO_DATABASE_URL;
+const sqlite = remoteUrl
+  ? createClient({ url: remoteUrl, authToken: process.env.TURSO_AUTH_TOKEN })
+  : (() => {
+      const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "grenaa.db");
+      const dir = path.dirname(dbPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      return createClient({ url: `file:${dbPath}` });
+    })();
 const db = drizzle(sqlite, { schema });
 
 function id(prefix: string) {
@@ -35,6 +44,25 @@ function isoDate(d: Date) {
 }
 
 async function main() {
+  // SIKKERHEDSSPÆRRE: dette script sletter ALT eksisterende data før det
+  // sår nyt (se DELETE-sætningerne nedenfor). Det er fint på en tom
+  // udviklingsdatabase, men må aldrig køre ubetinget mod en database der
+  // allerede indeholder rigtige bookinger, foreninger osv. - hvilket den vil
+  // gøre, fordi Render's build-kommando kører "db:seed" ved HVER deploy.
+  // Springer derfor automatisk seedingen over, hvis der allerede er data
+  // (fx en rigtig facilitet oprettet af en administrator). Sæt
+  // FORCE_RESEED=1 hvis man bevidst vil nulstille til demo-data igen.
+  if (process.env.FORCE_RESEED !== "1") {
+    const existing = await sqlite.execute("SELECT COUNT(*) as c FROM facilities");
+    const count = Number((existing.rows[0] as { c?: number | string })?.c ?? 0);
+    if (count > 0) {
+      console.log(
+        `Databasen indeholder allerede ${count} facilitet(er) - springer seed over for ikke at overskrive rigtige data. Sæt FORCE_RESEED=1 for at gennemtvinge nulstilling til demo-data.`
+      );
+      return;
+    }
+  }
+
   console.log("Nulstiller eksisterende data...");
   await sqlite.executeMultiple(`
     DELETE FROM notification_log;
