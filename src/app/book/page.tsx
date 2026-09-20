@@ -1,19 +1,10 @@
 "use client";
 
-import { useEffect, useState, type WheelEvent } from "react";
+import { useEffect, useState } from "react";
 import type { FacilityDTO } from "@/lib/clientTypes";
 import { formatDaDate, formatDaTime } from "@/lib/ai/messages";
-import { combineDateAndTime, localISODate, roundTimeString, stepTimeString } from "@/lib/date";
-
-// Museknap-rul over <input type="time"> skal springe 10 minutter ad gangen,
-// ligesom klik på op/ned-pilene - Chrome respekterer desværre kun `step` for
-// pilene, ikke for rul (stadig 1 minut ad gangen), så vi overtager selv
-// rul-håndteringen. Kun aktiv når feltet har fokus.
-function handleTimeWheel(e: WheelEvent<HTMLInputElement>, value: string, onChange: (next: string) => void) {
-  if (document.activeElement !== e.currentTarget || !value) return;
-  e.preventDefault();
-  onChange(stepTimeString(value, e.deltaY < 0 ? 10 : -10));
-}
+import { combineDateAndTime, localISODate, roundTimeString } from "@/lib/date";
+import { WheelStepInput } from "@/components/WheelStepInput";
 
 type Step = "facilitet" | "tid" | "info" | "betaling" | "kvittering";
 
@@ -167,31 +158,27 @@ export default function PublicBookingPortal() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Fra</label>
-                  <input
+                  <WheelStepInput
                     type="time"
-                    step={600}
                     value={startTime}
-                    onChange={(e) => {
-                      setStartTime(e.target.value);
+                    onChange={(v) => {
+                      setStartTime(v);
                       setAvailability("ukendt");
                     }}
-                    onBlur={(e) => e.target.value && setStartTime(roundTimeString(e.target.value))}
-                    onWheel={(e) => handleTimeWheel(e, startTime, setStartTime)}
+                    onRoundedBlur={roundTimeString}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Til</label>
-                  <input
+                  <WheelStepInput
                     type="time"
-                    step={600}
                     value={endTime}
-                    onChange={(e) => {
-                      setEndTime(e.target.value);
+                    onChange={(v) => {
+                      setEndTime(v);
                       setAvailability("ukendt");
                     }}
-                    onBlur={(e) => e.target.value && setEndTime(roundTimeString(e.target.value))}
-                    onWheel={(e) => handleTimeWheel(e, endTime, setEndTime)}
+                    onRoundedBlur={roundTimeString}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
                   />
                 </div>
