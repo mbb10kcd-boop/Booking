@@ -34,6 +34,14 @@ export interface BookingDTO {
   source: string | null;
 }
 
+export interface DayNoteDTO {
+  id: string;
+  date: string;
+  text: string;
+  createdBy: string | null;
+  createdAt: string | null;
+}
+
 export interface OrganizationDTO {
   id: string;
   name: string;
