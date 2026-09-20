@@ -49,6 +49,13 @@ export function InboxDetailClient({
   const [showRaw, setShowRaw] = useState(false);
   const [busyLine, setBusyLine] = useState<string | null>(null);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
+  // Linjen der redigeres lige nu (fx hvis fortolkeren ikke sikkert kunne
+  // genkende faciliteten, eller tidspunktet skal justeres, før man godkender)
+  const [editingLine, setEditingLine] = useState<string | null>(null);
+  const [editFacilityId, setEditFacilityId] = useState("");
+  const [editStartTime, setEditStartTime] = useState("");
+  const [editEndTime, setEditEndTime] = useState("");
+  const [editSingleDate, setEditSingleDate] = useState("");
 
   function facilityName(id: string | null) {
     if (!id) return null;
@@ -89,6 +96,39 @@ export function InboxDetailClient({
     } else if (action === "afvis") {
       setResultMessage("Forespørgslen er afvist, og et høfligt svar er genereret (se Notifikationer).");
     }
+    const refreshed = await fetch(`/api/inbox/${request.id}`);
+    const full = await refreshed.json();
+    setLines(full.lines);
+  }
+
+  function startEditing(line: RequestLine) {
+    setEditingLine(line.id);
+    setEditFacilityId(line.facilityId ?? "");
+    setEditStartTime(line.startTime);
+    setEditEndTime(line.endTime);
+    setEditSingleDate(line.singleDate ?? "");
+    setResultMessage(null);
+  }
+
+  async function saveEdit(lineId: string) {
+    setBusyLine(lineId);
+    const updates: Record<string, string> = {};
+    if (editFacilityId) updates.facilityId = editFacilityId;
+    if (editStartTime) updates.startTime = editStartTime;
+    if (editEndTime) updates.endTime = editEndTime;
+    if (editSingleDate) updates.singleDate = editSingleDate;
+    const res = await fetch(`/api/inbox/lines/${lineId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "rediger", updates }),
+    });
+    const data = await res.json();
+    setBusyLine(null);
+    if (!res.ok) {
+      setResultMessage(data.error ?? "Kunne ikke gemme rettelsen");
+      return;
+    }
+    setEditingLine(null);
     const refreshed = await fetch(`/api/inbox/${request.id}`);
     const full = await refreshed.json();
     setLines(full.lines);
@@ -161,7 +201,74 @@ export function InboxDetailClient({
               )}
               {line.status === "konflikt" && !line.facilityId && (
                 <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-sm text-amber-700 mb-3">
-                  Kunne ikke sikkert genkende faciliteten ({line.facilityText ?? "ikke fundet"}). Kræver manuel gennemgang.
+                  Kunne ikke sikkert genkende faciliteten ({line.facilityText ?? "ikke fundet"}). Ret facilitet/tid nedenfor,
+                  eller afvis forespørgslen.
+                </div>
+              )}
+
+              {editingLine === line.id && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 mb-3 space-y-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="col-span-2 sm:col-span-1">
+                      <label className="block text-xs text-slate-500 mb-0.5">Facilitet</label>
+                      <select
+                        value={editFacilityId}
+                        onChange={(e) => setEditFacilityId(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                      >
+                        <option value="">Vælg facilitet…</option>
+                        {facilities.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-0.5">Start</label>
+                      <input
+                        type="time"
+                        value={editStartTime}
+                        onChange={(e) => setEditStartTime(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-0.5">Slut</label>
+                      <input
+                        type="time"
+                        value={editEndTime}
+                        onChange={(e) => setEditEndTime(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                    {line.singleDate && (
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-0.5">Dato</label>
+                        <input
+                          type="date"
+                          value={editSingleDate}
+                          onChange={(e) => setEditSingleDate(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => saveEdit(line.id)}
+                      disabled={isBusy}
+                      className="rounded-lg bg-slate-800 text-white px-3 py-1.5 text-sm font-medium hover:bg-slate-900 disabled:opacity-50"
+                    >
+                      Gem rettelse
+                    </button>
+                    <button
+                      onClick={() => setEditingLine(null)}
+                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-white"
+                    >
+                      Annullér
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -183,6 +290,15 @@ export function InboxDetailClient({
                       className="rounded-lg bg-amber-600 text-white px-3 py-1.5 text-sm font-medium hover:bg-amber-700 disabled:opacity-50"
                     >
                       Overtag tid (aflys eksisterende)
+                    </button>
+                  )}
+                  {editingLine !== line.id && (
+                    <button
+                      onClick={() => startEditing(line)}
+                      disabled={isBusy}
+                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Ret facilitet/tid
                     </button>
                   )}
                   <button
