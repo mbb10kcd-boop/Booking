@@ -68,6 +68,27 @@ export function isoWeekNumber(d: Date = new Date()): number {
 }
 
 /**
+ * Alle datoer ("YYYY-MM-DD") for en given ugedag fra og med `from` til og med
+ * `until` (begge inklusive) - bruges til at materialisere en sæsonbookings
+ * enkelte ugentlige forekomster som selvstændige rækker i bookings-tabellen
+ * (se `seasonGroupId`/`recurrenceRule` i src/db/schema.ts). Starter altid på
+ * selve `from`-datoen, hvis den allerede rammer den ønskede ugedag (typisk
+ * tilfældet, da ugedagen i praksis udledes af `from` selv) - ellers søges
+ * frem til første forekomst af ugedagen.
+ */
+export function weeklyOccurrenceDates(from: string, until: string, weekday: number): string[] {
+  const dates: string[] = [];
+  const cur = new Date(`${from}T00:00:00`);
+  const end = new Date(`${until}T00:00:00`);
+  while (cur.getDay() !== weekday) cur.setDate(cur.getDate() + 1);
+  while (cur.getTime() <= end.getTime()) {
+    dates.push(localISODate(cur));
+    cur.setDate(cur.getDate() + 7);
+  }
+  return dates;
+}
+
+/**
  * Runder et klokkeslæt ("HH:mm") til nærmeste multiplum af `stepMinutes`
  * (standard 10 min). Beslutning: bookingtider skal altid lande på hele
  * 10-minutters-intervaller (fx 15:50 eller 16:00, aldrig 15:51) - dels fordi
