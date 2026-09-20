@@ -4,6 +4,8 @@
  * notification_templates senere; dette er fornuftige standardtekster.
  */
 
+import { weekdayName } from "@/lib/statusLabels";
+
 export function formatDaDate(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString("da-DK", {
@@ -115,6 +117,59 @@ ${formatDaDate(opts.startsAt)}
 ${formatDaTime(opts.startsAt)} - ${formatDaTime(opts.endsAt)}
 
 Kontakt os endelig, hvis I har spørgsmål, eller ønsker at booke en ny tid.
+
+Venlig hilsen
+Grenaa Idrætscenter`;
+}
+
+/**
+ * Bekræftelsesbesked for en HEL sæsonbooking (flere ugentlige forekomster
+ * oprettet på én gang, jf. `seasonGroupId`) - sendes kun ÉN gang for hele
+ * sæsonen, i modsætning til `confirmationMessage` som er pr. enkelt booking.
+ */
+export function seasonConfirmationMessage(opts: {
+  facilityName: string;
+  weekday: number; // 0=søndag..6=lørdag, ligesom recurrenceRule.weekday
+  startTime: string; // "HH:mm"
+  endTime: string;
+  until: string; // ISO dato
+  occurrenceCount: number;
+  recipientName?: string;
+}): string {
+  return `Hej${opts.recipientName ? ` ${opts.recipientName}` : ""}
+
+Jeres sæsonbooking er bekræftet:
+
+${opts.facilityName}
+Hver ${weekdayName(opts.weekday).toLowerCase()} kl. ${opts.startTime.replace(":", ".")}-${opts.endTime.replace(":", ".")}
+Frem til og med ${formatDaDate(`${opts.until}T00:00:00`)} (${opts.occurrenceCount} gange)
+
+Vi glæder os til at se jer hele sæsonen.
+
+Venlig hilsen
+Grenaa Idrætscenter`;
+}
+
+/**
+ * Aflysningsbesked når en HEL sæson stoppes (fra og med en given dato) i
+ * stedet for kun én enkelt forekomst - se `cancellationMessage` for den.
+ */
+export function seasonCancellationMessage(opts: {
+  facilityName: string;
+  weekday: number;
+  startTime: string;
+  endTime: string;
+  cancelledFrom: string; // ISO dato - resten af sæsonen fra og med denne dato er aflyst
+  recipientName?: string;
+}): string {
+  return `Hej${opts.recipientName ? ` ${opts.recipientName}` : ""}
+
+Jeres sæsonbooking er blevet aflyst fra og med ${formatDaDate(`${opts.cancelledFrom}T00:00:00`)}:
+
+${opts.facilityName}
+Hver ${weekdayName(opts.weekday).toLowerCase()} kl. ${opts.startTime.replace(":", ".")}-${opts.endTime.replace(":", ".")}
+
+Kontakt os endelig, hvis I har spørgsmål.
 
 Venlig hilsen
 Grenaa Idrætscenter`;
