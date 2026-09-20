@@ -3,7 +3,7 @@ import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
-import { findConflicts } from "@/lib/conflicts";
+import { findConflicts, findWarnings } from "@/lib/conflicts";
 import { seasonConfirmationMessage } from "@/lib/ai/messages";
 import { weeklyOccurrenceDates } from "@/lib/date";
 
@@ -116,8 +116,21 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // Løst koblede faciliteter (fx klatrevæg/opvisningshal) blokerer ikke,
+  // men flages pr. dato som en bemærkning til den der booker.
+  const warningsByDate: Record<string, Awaited<ReturnType<typeof findWarnings>>> = {};
+  for (const date of dates) {
+    const warnings = await findWarnings(facilityId, `${date}T${startTime}:00`, `${date}T${endTime}:00`);
+    if (warnings.length > 0) warningsByDate[date] = warnings;
+  }
+
   return NextResponse.json(
-    { seasonGroupId, createdBookingIds, overriddenConflicts: force ? conflictsByDate : {} },
+    {
+      seasonGroupId,
+      createdBookingIds,
+      overriddenConflicts: force ? conflictsByDate : {},
+      warningsByDate,
+    },
     { status: 201 }
   );
 }
