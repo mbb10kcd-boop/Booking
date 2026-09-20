@@ -7,7 +7,7 @@ import { formatDaDate, formatDaTime } from "@/lib/ai/messages";
 import { localISODate, nowLocalDateTimeString } from "@/lib/date";
 import { BookingFormModal } from "./BookingFormModal";
 
-type ViewMode = "liste" | "uge" | "maaned";
+type ViewMode = "liste" | "uge" | "facilitet" | "maaned";
 
 function startOfWeek(d: Date): Date {
   const date = new Date(d);
@@ -49,13 +49,15 @@ export function CalendarClient({
   const [loading, setLoading] = useState(false);
 
   const rangeStart = useMemo(() => {
-    if (view === "uge") return startOfWeek(anchor);
+    // "facilitet"-visningen (flere faciliteter side om side for ugen, jf.
+    // GIBBS' ressourcekalender) bruger samme uge-interval som "uge".
+    if (view === "uge" || view === "facilitet") return startOfWeek(anchor);
     if (view === "maaned") return startOfMonth(anchor);
     return addDays(new Date(), -1);
   }, [view, anchor]);
 
   const rangeEnd = useMemo(() => {
-    if (view === "uge") return addDays(startOfWeek(anchor), 7);
+    if (view === "uge" || view === "facilitet") return addDays(startOfWeek(anchor), 7);
     if (view === "maaned") {
       const start = startOfMonth(anchor);
       return new Date(start.getFullYear(), start.getMonth() + 1, 1);
@@ -134,7 +136,7 @@ export function CalendarClient({
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
             <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
-              {(["liste", "uge", "maaned"] as ViewMode[]).map((v) => (
+              {(["liste", "uge", "facilitet", "maaned"] as ViewMode[]).map((v) => (
                 <button
                   key={v}
                   onClick={() => setView(v)}
@@ -142,14 +144,14 @@ export function CalendarClient({
                     view === v ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
-                  {v === "maaned" ? "Måned" : v}
+                  {v === "maaned" ? "Måned" : v === "facilitet" ? "Faciliteter" : v}
                 </button>
               ))}
             </div>
             {view !== "liste" && (
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => setAnchor((a) => addDays(a, view === "uge" ? -7 : -30))}
+                  onClick={() => setAnchor((a) => addDays(a, view === "maaned" ? -30 : -7))}
                   className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                 >
                   &larr;
@@ -161,7 +163,7 @@ export function CalendarClient({
                   I dag
                 </button>
                 <button
-                  onClick={() => setAnchor((a) => addDays(a, view === "uge" ? 7 : 30))}
+                  onClick={() => setAnchor((a) => addDays(a, view === "maaned" ? 30 : 7))}
                   className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                 >
                   &rarr;
@@ -191,6 +193,14 @@ export function CalendarClient({
             bookings={visibleBookings}
             facilityName={facilityName}
             facilityColor={facilityColor}
+            onSelect={setSelectedBooking}
+          />
+        )}
+        {view === "facilitet" && (
+          <FacilityWeekView
+            weekStart={rangeStart}
+            facilities={facilities.filter((f) => !f.archived && selectedFacilityIds.has(f.id))}
+            bookings={visibleBookings}
             onSelect={setSelectedBooking}
           />
         )}
@@ -356,6 +366,93 @@ function WeekView({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * Ressourcevisning: hver valgt facilitet får sin egen ugeblok med 7
+ * dagskolonner ved siden af hinanden - så man fx kan sammenligne Multisalen,
+ * Opvisningshallen og Træningshallen for samme uge på én gang, ligesom i
+ * GIBBS' kalender. Hvilke faciliteter der vises styres af "Vis
+ * faciliteter"-filteret i venstre side; man blader i ugerne med
+ * pil-knapperne ved siden af visningsvælgeren.
+ */
+function FacilityWeekView({
+  weekStart,
+  facilities,
+  bookings,
+  onSelect,
+}: {
+  weekStart: Date;
+  facilities: FacilityDTO[];
+  bookings: BookingDTO[];
+  onSelect: (b: BookingDTO) => void;
+}) {
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+  if (facilities.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center text-slate-400">
+        Vælg mindst én facilitet i venstre side for at se ugeoversigten.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto pb-2">
+      <div className="inline-flex gap-4 min-w-full align-top">
+        {facilities.map((f) => (
+          <div key={f.id} className="w-[560px] shrink-0">
+            <div className="flex items-center gap-2 mb-2 px-1">
+              <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: f.color ?? "#64748b" }} />
+              <div className="font-semibold text-sm text-slate-800 truncate">{f.name}</div>
+            </div>
+            <div className="grid grid-cols-7 gap-1.5">
+              {days.map((d, i) => {
+                const dayStr = localISODate(d);
+                const dayBookings = bookings
+                  .filter((b) => b.facilityId === f.id && b.startsAt.slice(0, 10) === dayStr)
+                  .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+                const isToday = dayStr === localISODate();
+                return (
+                  <div
+                    key={dayStr}
+                    className={`rounded-xl border overflow-hidden min-h-[220px] ${
+                      isToday ? "border-blue-300 bg-blue-50/40" : "border-slate-200 bg-white"
+                    }`}
+                  >
+                    <div
+                      className={`px-1.5 py-1.5 text-[11px] font-semibold text-center border-b ${
+                        isToday ? "text-blue-700 border-blue-200" : "text-slate-500 border-slate-100"
+                      }`}
+                    >
+                      {WEEKDAY_SHORT[i]} {d.getDate()}/{d.getMonth() + 1}
+                    </div>
+                    <div className="p-1 space-y-1">
+                      {dayBookings.length === 0 && <div className="text-[10px] text-slate-300 px-1 py-2 text-center">Ledig</div>}
+                      {dayBookings.map((b) => (
+                        <button
+                          key={b.id}
+                          onClick={() => onSelect(b)}
+                          className={`w-full text-left rounded-lg px-1.5 py-1 text-[10px] border hover:shadow-sm transition-shadow ${
+                            BOOKING_STATUS_CLASSES[b.status] ?? "bg-slate-100 border-slate-300"
+                          }`}
+                        >
+                          <div className="font-medium truncate">{b.title}</div>
+                          <div className="opacity-75">
+                            {formatDaTime(b.startsAt)}-{formatDaTime(b.endsAt)}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
