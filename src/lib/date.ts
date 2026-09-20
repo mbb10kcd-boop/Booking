@@ -39,6 +39,35 @@ export function addDays(d: Date, days: number): Date {
 }
 
 /**
+ * Mandag i den uge `d` ligger i (dansk konvention: ugen starter mandag).
+ * Bruges af pedelvisningens ugeprogram til at regne uge-grænser ud fra en
+ * vilkårlig dato i ugen.
+ */
+export function startOfWeek(d: Date = new Date()): Date {
+  const copy = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = copy.getDay(); // 0 = søndag, 1 = mandag, ..., 6 = lørdag
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  copy.setDate(copy.getDate() + diffToMonday);
+  return copy;
+}
+
+/**
+ * ISO 8601-ugenummer for `d`. Bruges kun til visning ("Uge 43") i
+ * pedelvisningen. Regner bevidst via UTC-konstruerede datoer (samme
+ * år/måned/dag som `d`, blot i UTC) - det er den almindelige,
+ * DST-sikre måde at lave rent kalender-dagstal-regnestykke på, og
+ * ændrer ikke ved at bookinger i øvrigt altid gemmes/vises som naive
+ * lokale tidspunkter (se filens toplevel-kommentar).
+ */
+export function isoWeekNumber(d: Date = new Date()): number {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7; // mandag=1 ... søndag=7
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum); // torsdag i samme uge bestemmer ISO-året
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+/**
  * Runder et klokkeslæt ("HH:mm") til nærmeste multiplum af `stepMinutes`
  * (standard 10 min). Beslutning: bookingtider skal altid lande på hele
  * 10-minutters-intervaller (fx 15:50 eller 16:00, aldrig 15:51) - dels fordi
