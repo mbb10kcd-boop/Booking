@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
 import { logAudit } from "@/lib/audit";
-import { findConflicts } from "@/lib/conflicts";
+import { findConflicts, findWarnings } from "@/lib/conflicts";
 import { cancellationMessage } from "@/lib/ai/messages";
 import { newId } from "@/lib/ids";
 
@@ -71,6 +71,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  // Løst koblede faciliteter (fx klatrevæg/opvisningshal) blokerer ikke,
+  // men flages som en bemærkning - kun relevant når tid/facilitet ændres.
+  const warnings = timeOrFacilityChanged
+    ? await findWarnings(nextFacilityId, nextStartsAt, nextEndsAt, id)
+    : [];
+
   await db
     .update(schema.bookings)
     .set({ ...body, updatedAt: new Date().toISOString() })
@@ -86,7 +92,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const [updated] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, id));
-  return NextResponse.json(updated);
+  return NextResponse.json({ ...updated, warnings });
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -102,4 +108,4 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   }
 
   return NextResponse.json({ ok: true });
-}
+    }
