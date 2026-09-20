@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
     name: body.name,
     description: body.description ?? null,
     parentId: body.parentId ?? null,
+    conflictMode: (body.conflictMode === "warn" ? "warn" : "block") as "block" | "warn",
     capacity: body.capacity ?? null,
     openingHours: body.openingHours ?? null,
     pricePerHour: body.pricePerHour ?? 0,
