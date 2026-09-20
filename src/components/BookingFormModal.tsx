@@ -49,7 +49,12 @@ interface Slot {
   end: string;
   saving: boolean;
   createdId?: string;
+  /** Sat i stedet for `createdId` når slotten er oprettet som en sæsonbooking - antal ugentlige forekomster der blev oprettet. */
+  createdCount?: number;
+  /** Konflikt for en almindelig enkeltbooking (ét tidsrum). */
   conflicts?: BookingDTO[];
+  /** Konflikter for en sæsonbooking - én liste af konflikter pr. dato der rammer en eksisterende booking. */
+  seasonConflicts?: { date: string; conflicts: BookingDTO[] }[];
   error?: string;
 }
 
@@ -163,6 +168,15 @@ export function BookingFormModal({
     },
   ]);
 
+  // Sæsonbooking: når afkrydset, oprettes hver facilitet/tidsrum ovenfor ikke
+  // som én booking, men som én booking PR. UGE fra facilitetens starttidspunkt
+  // og frem til og med `repeatUntil` - samme ugedag og klokkeslæt hver gang
+  // (fx "hver tirsdag 16-18"). Gælder kun ved oprettelse af nye bookinger, ikke
+  // ved redigering af en allerede oprettet enkelt forekomst - at redigere hele
+  // en eksisterende sæson på én gang er ikke understøttet endnu.
+  const [repeatWeekly, setRepeatWeekly] = useState(false);
+  const [repeatUntil, setRepeatUntil] = useState("");
+
   function updateSlot(key: string, patch: Partial<Slot>) {
     setSlots((prev) => prev.map((s) => (s.key === key ? { ...s, ...patch } : s)));
   }
@@ -214,11 +228,7 @@ export function BookingFormModal({
     );
   }
 
-  async function createSlot(slot: Slot, force: boolean) {
-    if (!slot.facilityId || !slot.start || !slot.end) {
-      updateSlot(slot.key, { error: "Udfyld facilitet, starttid og sluttid." });
-      return;
-    }
+  async function createSingleSlot(slot: Slot, force: boolean): Promise<boolean> {
     updateSlot(slot.key, { saving: true, error: undefined, conflicts: force ? slot.conflicts : undefined });
     const fallbackTitle = organizations.find((o) => o.id === organizationId)?.name ?? "Booking";
     const res = await fetch("/api/bookings", {
@@ -240,14 +250,84 @@ export function BookingFormModal({
     if (res.status === 409) {
       const data = await res.json();
       updateSlot(slot.key, { saving: false, conflicts: data.conflicts });
-      return;
+      return false;
     }
     if (!res.ok) {
       updateSlot(slot.key, { saving: false, error: "Der opstod en fejl. Prøv igen." });
-      return;
+      return false;
     }
     const data = await res.json();
     updateSlot(slot.key, { saving: false, createdId: data.booking.id, conflicts: undefined, error: undefined });
+    return true;
+  }
+
+  /**
+   * Opretter slotten som en sæsonbooking: én booking pr. ugentlig forekomst
+   * fra slottens starttidspunkt og frem til og med `repeatUntil`, alle
+   * grupperet under samme seasonGroupId (se /api/bookings/season). Ugedagen
+   * behøver ikke angives særskilt - den udledes af starttidspunktets dato.
+   */
+  async function createSeasonSlot(slot: Slot, force: boolean): Promise<boolean> {
+    updateSlot(slot.key, { saving: true, error: undefined, seasonConflicts: force ? slot.seasonConflicts : undefined });
+    const fallbackTitle = organizations.find((o) => o.id === organizationId)?.name ?? "Booking";
+    const res = await fetch("/api/bookings/season", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        facilityId: slot.facilityId,
+        title: title || fallbackTitle,
+        organizationId: organizationId || null,
+        contactName: contactName || null,
+        contactEmail: contactEmail || null,
+        startDate: slot.start.slice(0, 10),
+        startTime: slot.start.slice(11, 16),
+        endTime: slot.end.slice(11, 16),
+        until: repeatUntil,
+        notes: notes || null,
+        status: DIRECT_BOOKING_STATUS,
+        force,
+      }),
+    });
+    if (res.status === 409) {
+      const data = await res.json();
+      const seasonConflicts = Object.entries(data.conflictsByDate as Record<string, BookingDTO[]>)
+        .map(([date, conflicts]) => ({ date, conflicts }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      updateSlot(slot.key, { saving: false, seasonConflicts });
+      return false;
+    }
+    if (!res.ok) {
+      updateSlot(slot.key, { saving: false, error: "Der opstod en fejl. Prøv igen." });
+      return false;
+    }
+    const data = await res.json();
+    updateSlot(slot.key, {
+      saving: false,
+      createdId: data.seasonGroupId,
+      createdCount: data.createdBookingIds.length,
+      seasonConflicts: undefined,
+      error: undefined,
+    });
+    return true;
+  }
+
+  async function createSlot(slot: Slot, force: boolean): Promise<boolean> {
+    if (!slot.facilityId || !slot.start || !slot.end) {
+      updateSlot(slot.key, { error: "Udfyld facilitet, starttid og sluttid." });
+      return false;
+    }
+    if (repeatWeekly) {
+      if (!repeatUntil) {
+        updateSlot(slot.key, { error: "Angiv en slutdato for gentagelsen (\"Gentages til og med\")." });
+        return false;
+      }
+      if (repeatUntil < slot.start.slice(0, 10)) {
+        updateSlot(slot.key, { error: "Slutdatoen for gentagelsen skal ligge efter startdatoen." });
+        return false;
+      }
+      return createSeasonSlot(slot, force);
+    }
+    return createSingleSlot(slot, force);
   }
 
   async function submitCreate() {
@@ -257,17 +337,21 @@ export function BookingFormModal({
       onSaved();
       return;
     }
+    // Bemærk: `ok` afgøres af createSlot's returværdi, IKKE ved bagefter at
+    // læse `slots`-state igen - at kalde `onSaved()` (som lukker formularen
+    // via en state-opdatering i CalendarClient) inde i et setSlots-callback
+    // udløser Reacts "Cannot update a component while rendering a different
+    // component"-advarsel, fordi det opdaterer en anden komponent midt i
+    // beregningen af denne komponents eget state. Ved i stedet at samle
+    // succes-status løbende under selve løkken, kan vi kalde `onSaved()` bagefter
+    // som et almindeligt (ikke-render) sideeffekt af begivenheds-handleren.
+    let allOk = true;
     for (const slot of pending) {
       // eslint-disable-next-line no-await-in-loop
-      await createSlot(slot, false);
+      const ok = await createSlot(slot, false);
+      if (!ok) allOk = false;
     }
-    // Tjek om alle faciliteter nu er oprettet (ingen tilbageværende
-    // konflikter/fejl) - så lukkes formularen automatisk ligesom før.
-    setSlots((current) => {
-      const allDone = current.every((s) => s.createdId);
-      if (allDone) onSaved();
-      return current;
-    });
+    if (allOk) onSaved();
   }
 
   const anySlotSaving = slots.some((s) => s.saving);
@@ -431,7 +515,11 @@ export function BookingFormModal({
                         className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white disabled:opacity-60"
                       />
                     </div>
-                    {slot.createdId && <div className="text-xs font-medium text-green-700">Oprettet</div>}
+                    {slot.createdId && (
+                      <div className="text-xs font-medium text-green-700">
+                        {slot.createdCount ? `Oprettet (${slot.createdCount} forekomster)` : "Oprettet"}
+                      </div>
+                    )}
                     {slot.error && <div className="text-xs text-red-600">{slot.error}</div>}
                     {slot.conflicts && slot.conflicts.length > 0 && (
                       <div className="rounded-lg border border-red-200 bg-red-50 p-2.5 space-y-1.5">
@@ -450,6 +538,32 @@ export function BookingFormModal({
                         </button>
                       </div>
                     )}
+                    {slot.seasonConflicts && slot.seasonConflicts.length > 0 && (
+                      <div className="rounded-lg border border-red-200 bg-red-50 p-2.5 space-y-1.5">
+                        <div className="font-medium text-red-800 text-xs">
+                          {slot.seasonConflicts.length} af forekomsterne konflikter med eksisterende booking(er):
+                        </div>
+                        <div className="max-h-32 overflow-y-auto space-y-1.5">
+                          {slot.seasonConflicts.map(({ date, conflicts }) => (
+                            <div key={date}>
+                              <div className="text-xs font-medium text-red-800">{formatDaDate(`${date}T00:00:00`)}</div>
+                              {conflicts.map((c) => (
+                                <div key={c.id} className="text-xs text-red-700 pl-2">
+                                  {c.title} - {formatDaTime(c.startsAt)}-{formatDaTime(c.endsAt)}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => createSlot(slot, true)}
+                          disabled={slot.saving}
+                          className="mt-1 w-full rounded-lg bg-red-600 text-white text-xs font-medium py-1.5 hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {slot.saving ? "Gemmer..." : "Opret alligevel (også de forekomster der konflikter)"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                   );
                 })}
@@ -465,6 +579,33 @@ export function BookingFormModal({
                   Titel og kontaktoplysninger nedenfor gælder for alle faciliteterne ovenfor.
                 </div>
               )}
+
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={repeatWeekly}
+                    onChange={(e) => setRepeatWeekly(e.target.checked)}
+                    className="rounded border-slate-300"
+                  />
+                  Gentag ugentligt (sæsonbooking)
+                </label>
+                <div className="text-xs text-slate-500 mt-1">
+                  Opretter en booking hver uge på samme ugedag og tidspunkt som angivet ovenfor - fx &quot;hver
+                  tirsdag 16-18&quot; - fra startdatoen og frem til den valgte slutdato.
+                </div>
+                {repeatWeekly && (
+                  <div className="mt-2">
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Gentages til og med</label>
+                    <input
+                      type="date"
+                      value={repeatUntil}
+                      onChange={(e) => setRepeatUntil(e.target.value)}
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -546,6 +687,10 @@ export function BookingFormModal({
                 ? "Gemmer..."
                 : allSlotsCreated
                 ? "Oprettet"
+                : repeatWeekly
+                ? slots.length > 1
+                  ? "Opret sæsonbookinger"
+                  : "Opret sæsonbooking"
                 : slots.length > 1
                 ? "Opret bookinger"
                 : "Opret booking"}
