@@ -24,6 +24,16 @@ export const BOOKING_STATUS_CLASSES: Record<string, string> = {
   midlertidig: "bg-amber-50 text-amber-700 border-amber-200 border-dashed",
 };
 
+// Sæsonbookinger (gentagne ugentlige forekomster, grupperet via
+// `seasonGroupId`) skal kunne skelnes fra enkeltbookinger på tværs af alle
+// kalendervisninger, UANSET status - fx skal en aflyst enkeltdag i en sæson
+// stadig være tydeligt markeret som "del af en sæson" ind til den er aflyst.
+// Derfor er dette en selvstændig, ekstra markering (ring uden om kortet + et
+// lille "↻"-ikon og en badge), ikke endnu en status-farve.
+export const SEASON_ACCENT_CLASS = "ring-2 ring-inset ring-indigo-400";
+export const SEASON_BADGE_CLASSES = "bg-indigo-100 text-indigo-700 border-indigo-300";
+export const SEASON_BADGE_LABEL = "↻ Sæson";
+
 export const REQUEST_LINE_STATUS_LABELS: Record<string, string> = {
   ledig: "Ledig",
   konflikt: "Konflikt",
