@@ -291,4 +291,3 @@ export const auditLog = sqliteTable("audit_log", {
   detail: text("detail"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
-
