@@ -14,6 +14,27 @@ export function formatDaDate(iso: string): string {
   });
 }
 
+/** Som `formatDaDate`, men uden årstal - bruges til dag-overskrifter i en uges program, hvor årstal er overflødigt. */
+export function formatDaDateShort(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("da-DK", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+  });
+}
+
+/**
+ * Sætter stort forbogstav på en dansk dato-streng uden at versalisere alle
+ * ord - brug denne i stedet for CSS-klassen "capitalize" på output fra
+ * formatDaDate/formatDaDateShort, da "capitalize" ellers fejlagtigt sætter
+ * stort forbogstav på månedsnavnet også (fx "14. September", som er forkert
+ * dansk retskrivning - det skal være "14. september").
+ */
+export function capitalizeDaDate(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 export function formatDaTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" });
