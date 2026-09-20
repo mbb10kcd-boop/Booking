@@ -55,6 +55,15 @@ interface Slot {
   conflicts?: BookingDTO[];
   /** Konflikter for en sæsonbooking - én liste af konflikter pr. dato der rammer en eksisterende booking. */
   seasonConflicts?: { date: string; conflicts: BookingDTO[] }[];
+  /**
+   * Ikke-blokerende bemærkninger for en almindelig enkeltbooking - fra løst
+   * koblede faciliteter (fx klatrevæg/opvisningshal, se conflictMode "warn"
+   * i src/lib/facilities.ts). Sættes kun ved succesfuld oprettelse, i
+   * modsætning til `conflicts` som forhindrer oprettelsen.
+   */
+  warnings?: BookingDTO[];
+  /** Samme som `warnings`, men for en sæsonbooking - grupperet pr. dato. */
+  seasonWarnings?: { date: string; warnings: BookingDTO[] }[];
   error?: string;
 }
 
@@ -109,6 +118,14 @@ export function BookingFormModal({
   const [editEnd, setEditEnd] = useState(booking ? toLocalInput(booking.endsAt) : "");
   const [editSaving, setEditSaving] = useState(false);
   const [editConflicts, setEditConflicts] = useState<BookingDTO[] | null>(null);
+  /**
+   * Ikke-blokerende bemærkning fra en løst koblet facilitet (fx
+   * klatrevæg/opvisningshal). I modsætning til `editConflicts` forhindrer
+   * dette ikke gemningen - sættes først NÅR ændringen allerede er gemt, og
+   * bruges til at holde formularen åben (i stedet for straks at lukke via
+   * `onSaved()`), så brugeren ser bemærkningen før de selv lukker den.
+   */
+  const [editWarnings, setEditWarnings] = useState<BookingDTO[] | null>(null);
 
   async function submitEdit(force: boolean) {
     if (!editFacilityId || !editStart || !editEnd) {
@@ -117,6 +134,7 @@ export function BookingFormModal({
     }
     setEditSaving(true);
     setError(null);
+    setEditWarnings(null);
     const fallbackTitle = organizations.find((o) => o.id === organizationId)?.name ?? "Booking";
     const res = await fetch(`/api/bookings/${booking!.id}`, {
       method: "PATCH",
@@ -145,6 +163,14 @@ export function BookingFormModal({
     }
     if (!res.ok) {
       setError("Der opstod en fejl. Prøv igen.");
+      return;
+    }
+    const data = await res.json();
+    if (data.warnings && data.warnings.length > 0) {
+      // Ændringen ER gemt allerede - dette er kun en bemærkning, ikke en
+      // blokering, så vi holder formularen åben og lader brugeren selv lukke
+      // den, i stedet for at kalde `onSaved()` med det samme.
+      setEditWarnings(data.warnings);
       return;
     }
     onSaved();
@@ -176,6 +202,12 @@ export function BookingFormModal({
   // en eksisterende sæson på én gang er ikke understøttet endnu.
   const [repeatWeekly, setRepeatWeekly] = useState(false);
   const [repeatUntil, setRepeatUntil] = useState("");
+
+  // Sat til true når mindst én facilitet blev oprettet med en (ikke-blokerende)
+  // bemærkning fra en løst koblet facilitet - da forhindrer vi den ellers
+  // automatiske lukning af formularen efter oprettelse, så brugeren når at se
+  // bemærkningen, og viser i stedet en eksplicit "Luk"-knap.
+  const [createdWithWarnings, setCreatedWithWarnings] = useState(false);
 
   function updateSlot(key: string, patch: Partial<Slot>) {
     setSlots((prev) => prev.map((s) => (s.key === key ? { ...s, ...patch } : s)));
@@ -228,8 +260,13 @@ export function BookingFormModal({
     );
   }
 
-  async function createSingleSlot(slot: Slot, force: boolean): Promise<boolean> {
-    updateSlot(slot.key, { saving: true, error: undefined, conflicts: force ? slot.conflicts : undefined });
+  async function createSingleSlot(slot: Slot, force: boolean): Promise<{ ok: boolean; hasWarnings: boolean }> {
+    updateSlot(slot.key, {
+      saving: true,
+      error: undefined,
+      conflicts: force ? slot.conflicts : undefined,
+      warnings: undefined,
+    });
     const fallbackTitle = organizations.find((o) => o.id === organizationId)?.name ?? "Booking";
     const res = await fetch("/api/bookings", {
       method: "POST",
@@ -250,15 +287,23 @@ export function BookingFormModal({
     if (res.status === 409) {
       const data = await res.json();
       updateSlot(slot.key, { saving: false, conflicts: data.conflicts });
-      return false;
+      return { ok: false, hasWarnings: false };
     }
     if (!res.ok) {
       updateSlot(slot.key, { saving: false, error: "Der opstod en fejl. Prøv igen." });
-      return false;
+      return { ok: false, hasWarnings: false };
     }
     const data = await res.json();
-    updateSlot(slot.key, { saving: false, createdId: data.booking.id, conflicts: undefined, error: undefined });
-    return true;
+    const warnings: BookingDTO[] | undefined =
+      data.warnings && data.warnings.length > 0 ? data.warnings : undefined;
+    updateSlot(slot.key, {
+      saving: false,
+      createdId: data.booking.id,
+      conflicts: undefined,
+      error: undefined,
+      warnings,
+    });
+    return { ok: true, hasWarnings: !!warnings };
   }
 
   /**
@@ -267,8 +312,13 @@ export function BookingFormModal({
    * grupperet under samme seasonGroupId (se /api/bookings/season). Ugedagen
    * behøver ikke angives særskilt - den udledes af starttidspunktets dato.
    */
-  async function createSeasonSlot(slot: Slot, force: boolean): Promise<boolean> {
-    updateSlot(slot.key, { saving: true, error: undefined, seasonConflicts: force ? slot.seasonConflicts : undefined });
+  async function createSeasonSlot(slot: Slot, force: boolean): Promise<{ ok: boolean; hasWarnings: boolean }> {
+    updateSlot(slot.key, {
+      saving: true,
+      error: undefined,
+      seasonConflicts: force ? slot.seasonConflicts : undefined,
+      seasonWarnings: undefined,
+    });
     const fallbackTitle = organizations.find((o) => o.id === organizationId)?.name ?? "Booking";
     const res = await fetch("/api/bookings/season", {
       method: "POST",
@@ -294,36 +344,44 @@ export function BookingFormModal({
         .map(([date, conflicts]) => ({ date, conflicts }))
         .sort((a, b) => a.date.localeCompare(b.date));
       updateSlot(slot.key, { saving: false, seasonConflicts });
-      return false;
+      return { ok: false, hasWarnings: false };
     }
     if (!res.ok) {
       updateSlot(slot.key, { saving: false, error: "Der opstod en fejl. Prøv igen." });
-      return false;
+      return { ok: false, hasWarnings: false };
     }
     const data = await res.json();
+    const warningsByDate = data.warningsByDate as Record<string, BookingDTO[]> | undefined;
+    const seasonWarnings =
+      warningsByDate && Object.keys(warningsByDate).length > 0
+        ? Object.entries(warningsByDate)
+            .map(([date, warnings]) => ({ date, warnings }))
+            .sort((a, b) => a.date.localeCompare(b.date))
+        : undefined;
     updateSlot(slot.key, {
       saving: false,
       createdId: data.seasonGroupId,
       createdCount: data.createdBookingIds.length,
       seasonConflicts: undefined,
       error: undefined,
+      seasonWarnings,
     });
-    return true;
+    return { ok: true, hasWarnings: !!seasonWarnings };
   }
 
-  async function createSlot(slot: Slot, force: boolean): Promise<boolean> {
+  async function createSlot(slot: Slot, force: boolean): Promise<{ ok: boolean; hasWarnings: boolean }> {
     if (!slot.facilityId || !slot.start || !slot.end) {
       updateSlot(slot.key, { error: "Udfyld facilitet, starttid og sluttid." });
-      return false;
+      return { ok: false, hasWarnings: false };
     }
     if (repeatWeekly) {
       if (!repeatUntil) {
         updateSlot(slot.key, { error: "Angiv en slutdato for gentagelsen (\"Gentages til og med\")." });
-        return false;
+        return { ok: false, hasWarnings: false };
       }
       if (repeatUntil < slot.start.slice(0, 10)) {
         updateSlot(slot.key, { error: "Slutdatoen for gentagelsen skal ligge efter startdatoen." });
-        return false;
+        return { ok: false, hasWarnings: false };
       }
       return createSeasonSlot(slot, force);
     }
@@ -346,12 +404,23 @@ export function BookingFormModal({
     // succes-status løbende under selve løkken, kan vi kalde `onSaved()` bagefter
     // som et almindeligt (ikke-render) sideeffekt af begivenheds-handleren.
     let allOk = true;
+    let anyWarnings = false;
     for (const slot of pending) {
       // eslint-disable-next-line no-await-in-loop
-      const ok = await createSlot(slot, false);
-      if (!ok) allOk = false;
+      const result = await createSlot(slot, false);
+      if (!result.ok) allOk = false;
+      if (result.hasWarnings) anyWarnings = true;
     }
-    if (allOk) onSaved();
+    if (!allOk) return;
+    if (anyWarnings) {
+      // Bookingen/bookingerne ER oprettet allerede - dette er kun en
+      // bemærkning, ikke en blokering - så vi holder formularen åben og
+      // lader brugeren se bemærkningen, i stedet for straks at kalde
+      // `onSaved()`.
+      setCreatedWithWarnings(true);
+    } else {
+      onSaved();
+    }
   }
 
   const anySlotSaving = slots.some((s) => s.saving);
@@ -386,6 +455,22 @@ export function BookingFormModal({
                   >
                     Overskriv alligevel og gem
                   </button>
+                </div>
+              )}
+
+              {editWarnings && editWarnings.length > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-2">
+                  <div className="font-medium text-amber-800 text-sm">
+                    Bemærk - tidspunktet overlapper med booking af en løst koblet facilitet:
+                  </div>
+                  {editWarnings.map((w) => (
+                    <div key={w.id} className="text-sm text-amber-700">
+                      {w.title} - {formatDaDate(w.startsAt)} {formatDaTime(w.startsAt)}-{formatDaTime(w.endsAt)}
+                    </div>
+                  ))}
+                  <div className="text-xs text-amber-700">
+                    Ændringen er gemt - dette er kun en bemærkning, ikke en blokering.
+                  </div>
                 </div>
               )}
 
@@ -530,12 +615,27 @@ export function BookingFormModal({
                           </div>
                         ))}
                         <button
-                          onClick={() => createSlot(slot, true)}
+                          onClick={async () => {
+                            const result = await createSlot(slot, true);
+                            if (result.hasWarnings) setCreatedWithWarnings(true);
+                          }}
                           disabled={slot.saving}
                           className="mt-1 w-full rounded-lg bg-red-600 text-white text-xs font-medium py-1.5 hover:bg-red-700 disabled:opacity-50"
                         >
                           {slot.saving ? "Gemmer..." : "Overskriv alligevel og opret"}
                         </button>
+                      </div>
+                    )}
+                    {slot.warnings && slot.warnings.length > 0 && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 space-y-1.5">
+                        <div className="font-medium text-amber-800 text-xs">
+                          Bemærk - overlapper med booking af en løst koblet facilitet:
+                        </div>
+                        {slot.warnings.map((w) => (
+                          <div key={w.id} className="text-xs text-amber-700">
+                            {w.title} - {formatDaDate(w.startsAt)} {formatDaTime(w.startsAt)}-{formatDaTime(w.endsAt)}
+                          </div>
+                        ))}
                       </div>
                     )}
                     {slot.seasonConflicts && slot.seasonConflicts.length > 0 && (
@@ -556,12 +656,34 @@ export function BookingFormModal({
                           ))}
                         </div>
                         <button
-                          onClick={() => createSlot(slot, true)}
+                          onClick={async () => {
+                            const result = await createSlot(slot, true);
+                            if (result.hasWarnings) setCreatedWithWarnings(true);
+                          }}
                           disabled={slot.saving}
                           className="mt-1 w-full rounded-lg bg-red-600 text-white text-xs font-medium py-1.5 hover:bg-red-700 disabled:opacity-50"
                         >
                           {slot.saving ? "Gemmer..." : "Opret alligevel (også de forekomster der konflikter)"}
                         </button>
+                      </div>
+                    )}
+                    {slot.seasonWarnings && slot.seasonWarnings.length > 0 && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 space-y-1.5">
+                        <div className="font-medium text-amber-800 text-xs">
+                          {slot.seasonWarnings.length} af forekomsterne overlapper med booking af en løst koblet facilitet:
+                        </div>
+                        <div className="max-h-32 overflow-y-auto space-y-1.5">
+                          {slot.seasonWarnings.map(({ date, warnings }) => (
+                            <div key={date}>
+                              <div className="text-xs font-medium text-amber-800">{formatDaDate(`${date}T00:00:00`)}</div>
+                              {warnings.map((w) => (
+                                <div key={w.id} className="text-xs text-amber-700 pl-2">
+                                  {w.title} - {formatDaTime(w.startsAt)}-{formatDaTime(w.endsAt)}
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -666,35 +788,58 @@ export function BookingFormModal({
         </div>
 
         <div className="px-5 py-4 border-t border-slate-100 flex gap-3 sticky bottom-0 bg-white">
-          <button onClick={onClose} className="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm font-medium text-slate-700">
-            Annullér
-          </button>
-          {isEditing ? (
+          {isEditing && editWarnings && editWarnings.length > 0 ? (
+            // Ændringen er allerede gemt - kun bemærkningen mangler at blive
+            // set af brugeren, så der er intet at annullere eller gemme mere.
             <button
-              onClick={() => submitEdit(false)}
-              disabled={editSaving}
-              className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              onClick={onSaved}
+              className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
             >
-              {editSaving ? "Gemmer..." : "Gem ændringer"}
+              Luk
+            </button>
+          ) : !isEditing && allSlotsCreated && createdWithWarnings ? (
+            // Samme situation ved oprettelse: bookingen/bookingerne er
+            // allerede oprettet, og vi venter blot på at brugeren har set
+            // bemærkningen/bemærkningerne ovenfor.
+            <button
+              onClick={onSaved}
+              className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              Luk
             </button>
           ) : (
-            <button
-              onClick={submitCreate}
-              disabled={anySlotSaving || allSlotsCreated}
-              className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {anySlotSaving
-                ? "Gemmer..."
-                : allSlotsCreated
-                ? "Oprettet"
-                : repeatWeekly
-                ? slots.length > 1
-                  ? "Opret sæsonbookinger"
-                  : "Opret sæsonbooking"
-                : slots.length > 1
-                ? "Opret bookinger"
-                : "Opret booking"}
-            </button>
+            <>
+              <button onClick={onClose} className="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm font-medium text-slate-700">
+                Annullér
+              </button>
+              {isEditing ? (
+                <button
+                  onClick={() => submitEdit(false)}
+                  disabled={editSaving}
+                  className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {editSaving ? "Gemmer..." : "Gem ændringer"}
+                </button>
+              ) : (
+                <button
+                  onClick={submitCreate}
+                  disabled={anySlotSaving || allSlotsCreated}
+                  className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {anySlotSaving
+                    ? "Gemmer..."
+                    : allSlotsCreated
+                    ? "Oprettet"
+                    : repeatWeekly
+                    ? slots.length > 1
+                      ? "Opret sæsonbookinger"
+                      : "Opret sæsonbooking"
+                    : slots.length > 1
+                    ? "Opret bookinger"
+                    : "Opret booking"}
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
