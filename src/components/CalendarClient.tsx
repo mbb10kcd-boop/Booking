@@ -50,9 +50,16 @@ export function CalendarClient({
   const [dayNotes, setDayNotes] = useState<DayNoteDTO[]>([]);
   const [view, setView] = useState<ViewMode>("uge");
   const [anchor, setAnchor] = useState(new Date());
-  const [selectedFacilityIds, setSelectedFacilityIds] = useState<Set<string>>(
-    new Set(initialFacilities.map((f) => f.id))
-  );
+  // Standardvalgte faciliteter: Martin har oplyst at Opvisningshallen,
+  // Træningshallen og Multisalen stort set altid er dem der bruges, så de er
+  // markeret som standard i stedet for samtlige faciliteter. Falder tilbage
+  // til alle faciliteter, hvis ingen af de tre findes (fx i et testmiljø med
+  // andre navne), så filteret aldrig utilsigtet viser en tom kalender.
+  const DEFAULT_FACILITY_NAMES = ["Opvisningshallen", "Træningshallen", "Multisalen"];
+  const [selectedFacilityIds, setSelectedFacilityIds] = useState<Set<string>>(() => {
+    const defaults = initialFacilities.filter((f) => DEFAULT_FACILITY_NAMES.includes(f.name));
+    return new Set((defaults.length > 0 ? defaults : initialFacilities).map((f) => f.id));
+  });
   const [showModal, setShowModal] = useState(false);
   // Forudfyldes når man dobbeltklikker en dag i kalenderen (og ev. en
   // facilitet, i facilitetsvisningen) - se `openNewBookingFor` herunder.
@@ -570,9 +577,15 @@ function FacilityWeekView({
 
   return (
     <div className="overflow-x-auto pb-2">
-      <div className="inline-flex gap-4 min-w-full align-top">
+      {/* Kolonnerne er fleksible (flex-1) i stedet for en fast bredde, så et
+          lille antal valgte faciliteter (fx standardvalget på tre) deler
+          hele den ledige bredde imellem sig og kan ses samtidig uden
+          sidescroll. min-w-[260px] sikrer stadig læsbare dagsceller hvis
+          mange faciliteter vælges på én gang - så falder man tilbage til
+          vandret scroll (overflow-x-auto ovenfor), som før. */}
+      <div className="flex gap-4 min-w-full align-top">
         {facilities.map((f) => (
-          <div key={f.id} className="w-[560px] shrink-0">
+          <div key={f.id} className="flex-1 min-w-[260px] max-w-[560px]">
             <div className="flex items-center gap-2 mb-2 px-1">
               <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: f.color ?? "#64748b" }} />
               <div className="font-semibold text-sm text-slate-800 truncate">{f.name}</div>
