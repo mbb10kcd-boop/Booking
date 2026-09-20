@@ -3,6 +3,7 @@ export interface FacilityDTO {
   name: string;
   description: string | null;
   parentId: string | null;
+  conflictMode: "block" | "warn" | null;
   capacity: number | null;
   pricePerHour: number | null;
   requiresPayment: boolean | null;
