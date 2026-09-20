@@ -280,6 +280,22 @@ export const notificationLog = sqliteTable("notification_log", {
 });
 
 // ---------------------------------------------------------------------------
+// Dagsnoter: fritekst-noter knyttet til en bestemt dato (fx "Tekniker kommer
+// til ventilationen kl. 10" eller "Brandøvelse i Fit og Sund") - vises både i
+// kalenderen og i pedelvisningen, uafhængigt af de almindelige bookinger, så
+// personalet/pedellerne kan skrive og se praktiske beskeder der ikke i sig
+// selv er en booking af en facilitet. Der kan sagtens være flere noter på
+// samme dato.
+// ---------------------------------------------------------------------------
+export const dayNotes = sqliteTable("day_notes", {
+  id: text("id").primaryKey(),
+  date: text("date").notNull(), // "YYYY-MM-DD"
+  text: text("text").notNull(),
+  createdBy: text("created_by"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// ---------------------------------------------------------------------------
 // Audit log (bookinghistorik på tværs af hele systemet)
 // ---------------------------------------------------------------------------
 export const auditLog = sqliteTable("audit_log", {
