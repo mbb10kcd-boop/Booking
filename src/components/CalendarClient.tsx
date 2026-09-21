@@ -65,7 +65,7 @@ function hexToRgba(hex: string, alpha: number): string {
  * stedet deres røde status-baggrund uændret, så en aflysning altid er
  * tydelig at få øje på, uanset facilitet.
  */
-function facilityCardStyle(color: string | undefined, status: string): CSSProperties {
+function facilityCardStyle(color: string | null | undefined, status: string): CSSProperties {
   if (!color) return {};
   const style: CSSProperties = { borderLeftColor: color, borderLeftWidth: 6 };
   if (status !== "aflyst" && status !== "afvist") {
