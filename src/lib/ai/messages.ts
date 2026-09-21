@@ -231,3 +231,30 @@ export function conflictExplanation(opts: {
     opts.endsAt
   )} i ${opts.facilityName} er allerede booket af ${opts.existingOwner}.`;
 }
+
+/**
+ * Besked til en forening, når deres anmodning om at overtage en optaget tid
+ * (indsendt via foreningsportalen, når den ønskede tid allerede var booket af
+ * en anden forening) er blevet afvist af personalet - den eksisterende
+ * booking forbliver uændret, og der sendes IKKE besked til den forening der
+ * allerede havde tiden, da der intet ændrer sig for dem.
+ */
+export function rescheduleRejectedMessage(opts: {
+  facilityNames: string[];
+  startsAt: string;
+  endsAt: string;
+  organizationName: string;
+}): string {
+  return `Hej ${opts.organizationName}
+
+Vi har desværre måttet afvise jeres anmodning om at overtage tiden:
+
+${opts.facilityNames.map((n) => `- ${n}`).join("\n")}
+${formatDaDate(opts.startsAt)}
+${formatDaTime(opts.startsAt)} - ${formatDaTime(opts.endsAt)}
+
+Den eksisterende booking i tidsrummet bliver stående. I er velkomne til at sende en ny anmodning med et andet tidspunkt eller en anden facilitet.
+
+Venlig hilsen
+Grenaa Idrætscenter`;
+}

@@ -212,6 +212,39 @@ export const conflictLogs = sqliteTable("conflict_logs", {
 });
 
 // ---------------------------------------------------------------------------
+// Anmodninger om aflysning/flytning fra foreningsportalen: når en forening
+// forsøger at booke en tid, der allerede er optaget af en anden forening,
+// bliver de IKKE bare blokeret - de kan i stedet sende en anmodning. Under
+// /anmodninger kan personalet godkende eller afvise. Ved godkendelse
+// aflyses de(n) konflikterende booking(er) (den forening får automatisk en
+// aflysningsmail, som ved enhver anden aflysning), og der oprettes en ny
+// booking til den anmodende forening (som får en bekræftelsesmail). Ved
+// afvisning ændres intet ved den eksisterende booking, og kun den
+// anmodende forening får besked - se PATCH i
+// src/app/api/reschedule-requests/[id]/route.ts.
+// ---------------------------------------------------------------------------
+export const rescheduleRequests = sqliteTable("reschedule_requests", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  facilityIds: text("facility_ids", { mode: "json" }).$type<string[]>().notNull(),
+  startsAt: text("starts_at").notNull(),
+  endsAt: text("ends_at").notNull(),
+  extraEmail: text("extra_email"),
+  notes: text("notes"),
+  // De bookinger der konflikterede med det ønskede tidsrum, da anmodningen
+  // blev sendt - til visning for personalet. Selve godkendelsen tjekker
+  // konflikter igen på godkendelsestidspunktet, i tilfælde af at situationen
+  // har ændret sig (fx hvis personalet allerede selv har flyttet den anden
+  // booking manuelt).
+  conflictingBookingIds: text("conflicting_booking_ids", { mode: "json" }).$type<string[]>().notNull(),
+  status: text("status", { enum: ["afventer", "godkendt", "afvist"] })
+    .notNull()
+    .default("afventer"),
+  decidedAt: text("decided_at"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// ---------------------------------------------------------------------------
 // Betalinger
 // ---------------------------------------------------------------------------
 export const payments = sqliteTable("payments", {

@@ -49,6 +49,9 @@ export default function ForeningBookingPortal() {
 
   // --- Trin 5: kvittering ---
   const [createdBookings, setCreatedBookings] = useState<{ id: string; facilityId: string; accessCode: string | null }[]>([]);
+  // "anmodning" når det ønskede tidsrum var optaget, og der derfor blev sendt
+  // en anmodning om aflysning/flytning i stedet for en rigtig booking.
+  const [submissionType, setSubmissionType] = useState<"booking" | "anmodning">("booking");
 
   useEffect(() => {
     fetch("/api/portal/organizations")
@@ -178,7 +181,10 @@ export default function ForeningBookingPortal() {
     setError(null);
     const startsAt = combineDateAndTime(selectedDate, startTime);
     const endsAt = combineDateAndTime(selectedDate, endTime);
-    const res = await fetch("/api/portal/book-forening", {
+    // Er tiden optaget, sendes en anmodning om aflysning/flytning i stedet
+    // for en rigtig booking - se /api/portal/request-reschedule.
+    const isRequest = availability === "optaget";
+    const res = await fetch(isRequest ? "/api/portal/request-reschedule" : "/api/portal/book-forening", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -196,7 +202,13 @@ export default function ForeningBookingPortal() {
       setError(data.error ?? "Der opstod en fejl.");
       return;
     }
-    setCreatedBookings(data.bookings);
+    if (isRequest) {
+      setSubmissionType("anmodning");
+      setCreatedBookings([]);
+    } else {
+      setSubmissionType("booking");
+      setCreatedBookings(data.bookings);
+    }
     setStep("kvittering");
   }
 
@@ -434,8 +446,12 @@ export default function ForeningBookingPortal() {
                     </div>
                   )}
                   {availability === "optaget" && (
-                    <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-                      Optaget i: {busyFacilityNames.join(", ")}
+                    <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 space-y-1">
+                      <div>Optaget i: {busyFacilityNames.join(", ")}</div>
+                      <div className="text-xs text-red-500">
+                        I kan stadig gå videre og sende en anmodning om at få tiden - Grenaa Idrætscenter tager
+                        stilling til det.
+                      </div>
                     </div>
                   )}
                 </div>
@@ -446,7 +462,7 @@ export default function ForeningBookingPortal() {
                   Tilbage
                 </button>
                 <button
-                  disabled={availability !== "ledig"}
+                  disabled={availability === "ukendt"}
                   onClick={() => setStep("info")}
                   className="flex-1 rounded-xl bg-blue-600 text-white py-3 font-medium disabled:opacity-40"
                 >
@@ -495,6 +511,12 @@ export default function ForeningBookingPortal() {
                   className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
                 />
               </div>
+              {availability === "optaget" && (
+                <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-700">
+                  Tiden er optaget af en anden booking. I kan sende en anmodning om at få den - Grenaa Idrætscenter
+                  tager stilling til, om den anden booking kan flyttes eller aflyses, og I får besked om resultatet.
+                </div>
+              )}
               <div className="flex gap-3">
                 <button onClick={() => setStep("dato")} className="flex-1 rounded-xl border border-slate-300 py-3 text-sm font-medium text-slate-700">
                   Tilbage
@@ -502,15 +524,17 @@ export default function ForeningBookingPortal() {
                 <button
                   onClick={submitBooking}
                   disabled={busy}
-                  className="flex-1 rounded-xl bg-blue-600 text-white py-3 font-medium disabled:opacity-40"
+                  className={`flex-1 rounded-xl text-white py-3 font-medium disabled:opacity-40 ${
+                    availability === "optaget" ? "bg-amber-600" : "bg-blue-600"
+                  }`}
                 >
-                  {busy ? "Sender..." : "Bekræft booking"}
+                  {busy ? "Sender..." : availability === "optaget" ? "Anmod om aflysning/flytning" : "Bekræft booking"}
                 </button>
               </div>
             </div>
           )}
 
-          {step === "kvittering" && selectedDate && (
+          {step === "kvittering" && selectedDate && submissionType === "booking" && (
             <div className="space-y-4 text-center">
               <div className="text-4xl">&#10003;</div>
               <h2 className="font-semibold text-slate-900 text-lg">Booking bekræftet!</h2>
@@ -536,6 +560,27 @@ export default function ForeningBookingPortal() {
                 En bekræftelsesmail er sendt til {selectedOrg?.contactEmail}
                 {extraEmail ? ` og ${extraEmail}` : ""}.
               </p>
+            </div>
+          )}
+
+          {step === "kvittering" && selectedDate && submissionType === "anmodning" && (
+            <div className="space-y-4 text-center">
+              <div className="text-4xl">&#128172;</div>
+              <h2 className="font-semibold text-slate-900 text-lg">Anmodning sendt!</h2>
+              <div className="text-sm text-slate-600">
+                {selectedFacilities.map((f) => f.name).join(", ")}
+                <br />
+                {formatDaDate(combineDateAndTime(selectedDate, startTime))}
+                <br />
+                {startTime} - {endTime}
+              </div>
+              <p className="text-sm text-slate-600">
+                Tiden var desværre optaget i forvejen. Vi har sendt jeres anmodning til Grenaa Idrætscenter, som
+                vender tilbage hurtigst muligt med besked om, hvorvidt I kan få tiden.
+              </p>
+              <a href="/book" className="block text-sm text-blue-600 font-medium">
+                Tilbage til forsiden
+              </a>
             </div>
           )}
         </div>

@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/indbakke", label: "Indbakke", icon: "✉" },
   { href: "/foreninger", label: "Foreninger", icon: "★" },
   { href: "/faciliteter", label: "Faciliteter", icon: "⌘" },
+  { href: "/anmodninger", label: "Anmodninger", icon: "⇄" },
   { href: "/skaerme", label: "Infoskærme", icon: "▣" },
   { href: "/notifikationer", label: "Beskeder", icon: "↻" },
 ];

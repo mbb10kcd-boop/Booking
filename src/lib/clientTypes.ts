@@ -55,3 +55,17 @@ export interface OrganizationDTO {
   notes: string | null;
   status: "godkendt" | "afventer_godkendelse" | "afvist";
 }
+
+export interface RescheduleRequestDTO {
+  id: string;
+  organizationId: string;
+  facilityIds: string[];
+  startsAt: string;
+  endsAt: string;
+  extraEmail: string | null;
+  notes: string | null;
+  conflictingBookingIds: string[];
+  status: "afventer" | "godkendt" | "afvist";
+  decidedAt: string | null;
+  createdAt: string | null;
+}
