@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import type { BookingDTO, DayNoteDTO, FacilityDTO, OrganizationDTO } from "@/lib/clientTypes";
 import {
   BOOKING_STATUS_CLASSES,
@@ -37,6 +37,78 @@ function addDays(d: Date, n: number): Date {
 
 const WEEKDAY_SHORT = ["Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn"];
 
+/**
+ * Konverterer en facilitets hex-farve (fx "#2563eb") til en rgba()-streng med
+ * den ønskede transparens. Bruges af `facilityCardStyle` til at give hver
+ * booking en tydelig farvet baggrundstone efter hvilken facilitet den hører
+ * til, i stedet for kun den tidligere tynde 3px venstre-kant-streg. Martin
+ * har efterspurgt en langt mere synlig farve-markering af fx Opvisningshallen
+ * vs. Træningshallen i kalenderoversigten, da de to haller ofte kolliderer
+ * (kampe vs. træning).
+ */
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace("#", "");
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
+  const int = parseInt(full, 16) || 0;
+  const r = (int >> 16) & 255;
+  const g = (int >> 8) & 255;
+  const b = int & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/**
+ * Style til et booking-kort/-chip: en tyk farvet venstre-kant plus en let
+ * farvet baggrundstone i facilitetens farve - så man på afstand kan se
+ * hvilken facilitet en booking hører til, uden at overdøve status-farverne
+ * (afventer/bekræftet/betalt m.v. fra BOOKING_STATUS_CLASSES), som stadig
+ * styrer tekstfarve og den tynde ramme. Aflyste/afviste bookinger beholder i
+ * stedet deres røde status-baggrund uændret, så en aflysning altid er
+ * tydelig at få øje på, uanset facilitet.
+ */
+function facilityCardStyle(color: string | undefined, status: string): CSSProperties {
+  if (!color) return {};
+  const style: CSSProperties = { borderLeftColor: color, borderLeftWidth: 6 };
+  if (status !== "aflyst" && status !== "afvist") {
+    style.backgroundColor = hexToRgba(color, 0.16);
+  }
+  return style;
+}
+
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  ikke_paakraevet: "",
+  afventer: "afventer betaling",
+  betalt: "betalt",
+  annulleret: "annulleret",
+  refunderet: "refunderet",
+};
+
+/**
+ * Bygger teksten til mouse-over-tooltippen på et booking-kort - ekstra
+ * oplysninger man ellers skulle åbne bookingen for at se (kontaktperson,
+ * dørkode, pris m.v.). Vises via den almindelige `title`-attribut, så det
+ * virker uden yderligere UI-tilstand og er skærmlæser-venligt.
+ */
+function bookingTooltip(booking: BookingDTO, facilityNameStr: string, organizationNameStr?: string): string {
+  const lines = [
+    booking.title,
+    facilityNameStr,
+    `${formatDaDate(booking.startsAt)}, ${formatDaTime(booking.startsAt)}-${formatDaTime(booking.endsAt)}`,
+    `Status: ${BOOKING_STATUS_LABELS[booking.status] ?? booking.status}`,
+  ];
+  if (booking.seasonGroupId) lines.push("↻ Sæsonbooking (gentages ugentligt)");
+  if (organizationNameStr) lines.push(`Forening: ${organizationNameStr}`);
+  if (booking.contactName) lines.push(`Kontakt: ${booking.contactName}`);
+  if (booking.contactEmail) lines.push(`E-mail: ${booking.contactEmail}`);
+  if (booking.contactPhone) lines.push(`Telefon: ${booking.contactPhone}`);
+  if (booking.accessCode) lines.push(`Dørkode: ${booking.accessCode}`);
+  if (booking.price) {
+    const label = booking.paymentStatus ? PAYMENT_STATUS_LABELS[booking.paymentStatus] ?? "" : "";
+    lines.push(`Pris: ${booking.price} kr.${label ? ` (${label})` : ""}`);
+  }
+  if (booking.notes) lines.push(`Note: ${booking.notes}`);
+  return lines.join("\n");
+}
+
 export function CalendarClient({
   initialFacilities,
   initialOrganizations,
@@ -66,6 +138,13 @@ export function CalendarClient({
   const [modalDefaultStart, setModalDefaultStart] = useState<string | undefined>(undefined);
   const [modalDefaultFacilityId, setModalDefaultFacilityId] = useState<string | undefined>(undefined);
   const [selectedBooking, setSelectedBooking] = useState<BookingDTO | null>(null);
+  // Booking der redigeres direkte via højreklik-hurtigmenuen (se
+  // BookingContextMenu) - adskilt fra `selectedBooking`/`showModal`, så
+  // "Rediger" i hurtigmenuen springer direkte til redigeringsformularen uden
+  // først at åbne detalje-boksen.
+  const [quickEditBooking, setQuickEditBooking] = useState<BookingDTO | null>(null);
+  // Højreklik-hurtigmenuen: position + hvilken booking den blev åbnet for.
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; booking: BookingDTO } | null>(null);
   // Dagsnote der redigeres/oprettes (fx "tekniker kommer til ventilationen") -
   // se DayNoteModal. `date` er sat når man opretter en NY note for en dag,
   // `note` er sat i stedet når man redigerer en eksisterende.
@@ -153,6 +232,11 @@ export function CalendarClient({
     return facilities.find((f) => f.id === id)?.color ?? "#64748b";
   }
 
+  function organizationName(id: string | null) {
+    if (!id) return undefined;
+    return organizations.find((o) => o.id === id)?.name;
+  }
+
   function toggleFacility(id: string) {
     setSelectedFacilityIds((prev) => {
       const next = new Set(prev);
@@ -160,6 +244,50 @@ export function CalendarClient({
       else next.add(id);
       return next;
     });
+  }
+
+  /** Åbner højreklik-hurtigmenuen for en booking på musens position. */
+  function openContextMenu(e: ReactMouseEvent, booking: BookingDTO) {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, booking });
+  }
+
+  async function quickCancelBooking(booking: BookingDTO) {
+    const label = booking.seasonGroupId ? "denne dags forekomst af" : "";
+    if (!window.confirm(`Aflys ${label} "${booking.title}"?`.replace("  ", " "))) return;
+    setContextMenu(null);
+    await fetch(`/api/bookings/${booking.id}`, { method: "DELETE" });
+    loadBookings();
+  }
+
+  async function quickCancelSeason(booking: BookingDTO) {
+    if (!booking.seasonGroupId) return;
+    if (!window.confirm(`Aflys HELE sæsonen "${booking.title}" (alle kommende forekomster)?`)) return;
+    setContextMenu(null);
+    await fetch(`/api/bookings/season/${booking.seasonGroupId}`, { method: "DELETE" });
+    loadBookings();
+  }
+
+  function quickMailOrganizer(booking: BookingDTO) {
+    setContextMenu(null);
+    window.location.href = buildOrganizerMailtoLink(booking, facilityName(booking.facilityId));
+  }
+
+  async function quickCopyAccessCode(booking: BookingDTO) {
+    if (!booking.accessCode) return;
+    try {
+      await navigator.clipboard.writeText(booking.accessCode);
+    } catch {
+      // Clipboard-API'et kan i sjældne tilfælde fejle (fx manglende
+      // browser-tilladelse) - dørkoden kan stadig ses ved almindeligt klik på
+      // bookingen, så vi fejler stille her.
+    }
+  }
+
+  function quickEdit(booking: BookingDTO) {
+    setContextMenu(null);
+    setQuickEditBooking(booking);
   }
 
   return (
@@ -247,11 +375,19 @@ export function CalendarClient({
 
         <div className="text-xs text-slate-400 mb-3">
           {SEASON_BADGE_LABEL} markerer sæsonbookinger (gentages ugentligt) - så en booking, der afviger fra den
-          faste sæson, er nem at få øje på. Dobbeltklik en dag for at oprette en booking den dag.
+          faste sæson, er nem at få øje på. Dobbeltklik en dag for at oprette en booking den dag. Hold musen over en
+          booking for flere oplysninger, eller højreklik for hurtige handlinger.
         </div>
 
         {view === "liste" && (
-          <ListView bookings={visibleBookings} facilityName={facilityName} facilityColor={facilityColor} onSelect={setSelectedBooking} />
+          <ListView
+            bookings={visibleBookings}
+            facilityName={facilityName}
+            facilityColor={facilityColor}
+            organizationName={organizationName}
+            onSelect={setSelectedBooking}
+            onContextMenu={openContextMenu}
+          />
         )}
         {view === "uge" && (
           <WeekView
@@ -259,7 +395,9 @@ export function CalendarClient({
             bookings={visibleBookings}
             facilityName={facilityName}
             facilityColor={facilityColor}
+            organizationName={organizationName}
             onSelect={setSelectedBooking}
+            onContextMenu={openContextMenu}
             notesForDay={notesForDay}
             onAddNote={(dateStr) => setNoteModal({ date: dateStr })}
             onEditNote={(note) => setNoteModal({ date: note.date, note })}
@@ -271,7 +409,9 @@ export function CalendarClient({
             weekStart={rangeStart}
             facilities={facilities.filter((f) => !f.archived && selectedFacilityIds.has(f.id))}
             bookings={visibleBookings}
+            organizationName={organizationName}
             onSelect={setSelectedBooking}
+            onContextMenu={openContextMenu}
             onDayDoubleClick={openNewBookingFor}
           />
         )}
@@ -280,7 +420,10 @@ export function CalendarClient({
             monthStart={rangeStart}
             bookings={visibleBookings}
             facilityName={facilityName}
+            facilityColor={facilityColor}
+            organizationName={organizationName}
             onSelect={setSelectedBooking}
+            onContextMenu={openContextMenu}
             notesForDay={notesForDay}
             onAddNote={(dateStr) => setNoteModal({ date: dateStr })}
             onEditNote={(note) => setNoteModal({ date: note.date, note })}
@@ -298,6 +441,19 @@ export function CalendarClient({
           onClose={() => setShowModal(false)}
           onSaved={() => {
             setShowModal(false);
+            loadBookings();
+          }}
+        />
+      )}
+
+      {quickEditBooking && (
+        <BookingFormModal
+          booking={quickEditBooking}
+          facilities={facilities}
+          organizations={organizations}
+          onClose={() => setQuickEditBooking(null)}
+          onSaved={() => {
+            setQuickEditBooking(null);
             loadBookings();
           }}
         />
@@ -332,6 +488,140 @@ export function CalendarClient({
           }}
         />
       )}
+
+      {contextMenu && (
+        <BookingContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          booking={contextMenu.booking}
+          facilityNameStr={facilityName(contextMenu.booking.facilityId)}
+          onClose={() => setContextMenu(null)}
+          onOpenDetails={() => {
+            setContextMenu(null);
+            setSelectedBooking(contextMenu.booking);
+          }}
+          onEdit={() => quickEdit(contextMenu.booking)}
+          onCancelDay={() => quickCancelBooking(contextMenu.booking)}
+          onCancelSeason={() => quickCancelSeason(contextMenu.booking)}
+          onMail={() => quickMailOrganizer(contextMenu.booking)}
+          onCopyCode={() => quickCopyAccessCode(contextMenu.booking)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Højreklik-hurtigmenu på en booking: de mest almindelige handlinger uden at
+ * skulle åbne den fulde detalje-boks først. Lukker sig selv ved klik uden
+ * for, tryk på Escape, eller scroll - ligesom en almindelig kontekstmenu.
+ */
+function BookingContextMenu({
+  x,
+  y,
+  booking,
+  facilityNameStr,
+  onClose,
+  onOpenDetails,
+  onEdit,
+  onCancelDay,
+  onCancelSeason,
+  onMail,
+  onCopyCode,
+}: {
+  x: number;
+  y: number;
+  booking: BookingDTO;
+  facilityNameStr: string;
+  onClose: () => void;
+  onOpenDetails: () => void;
+  onEdit: () => void;
+  onCancelDay: () => void;
+  onCancelSeason: () => void;
+  onMail: () => void;
+  onCopyCode: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const isSeason = !!booking.seasonGroupId;
+  const isCancelled = booking.status === "aflyst";
+
+  useEffect(() => {
+    // Lille forsinkelse så det klik, der åbnede menuen (via contextmenu-
+    // eventet), ikke selv registreres som "klik udenfor" og lukker den igen
+    // med det samme.
+    const timer = setTimeout(() => {
+      window.addEventListener("click", onClose);
+      window.addEventListener("contextmenu", onClose);
+      window.addEventListener("scroll", onClose, true);
+      window.addEventListener("keydown", handleKey);
+    }, 0);
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("click", onClose);
+      window.removeEventListener("contextmenu", onClose);
+      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("keydown", handleKey);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Undgår at menuen render's uden for skærmens synlige område ved klik tæt
+  // på højre/nederste kant.
+  const maxLeft = typeof window !== "undefined" ? window.innerWidth - 248 : x;
+  const maxTop = typeof window !== "undefined" ? window.innerHeight - 260 : y;
+  const style: CSSProperties = {
+    position: "fixed",
+    top: Math.max(8, Math.min(y, maxTop)),
+    left: Math.max(8, Math.min(x, maxLeft)),
+    zIndex: 60,
+  };
+
+  const itemClass = "w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50";
+
+  return (
+    <div style={style} className="w-60 rounded-xl border border-slate-200 bg-white shadow-xl py-1" onClick={(e) => e.stopPropagation()}>
+      <div className="px-3 py-2 border-b border-slate-100">
+        <div className="text-sm font-medium text-slate-900 truncate">{booking.title}</div>
+        <div className="text-xs text-slate-400 truncate">{facilityNameStr}</div>
+      </div>
+      <button className={itemClass} onClick={onOpenDetails}>
+        Vis detaljer
+      </button>
+      <button className={itemClass} onClick={onEdit}>
+        Rediger
+      </button>
+      {booking.contactEmail && (
+        <button className={itemClass} onClick={onMail}>
+          Send mail til arrangør
+        </button>
+      )}
+      {booking.accessCode && (
+        <button
+          className={itemClass}
+          onClick={() => {
+            onCopyCode();
+            setCopied(true);
+          }}
+        >
+          {copied ? "Dørkode kopieret!" : "Kopiér dørkode"}
+        </button>
+      )}
+      {!isCancelled && (
+        <>
+          <div className="border-t border-slate-100 my-1" />
+          <button className={`${itemClass} text-red-600`} onClick={onCancelDay}>
+            {isSeason ? "Aflys kun denne dag" : "Aflys booking"}
+          </button>
+          {isSeason && (
+            <button className={`${itemClass} text-red-600`} onClick={onCancelSeason}>
+              Aflys hele sæsonen
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -340,13 +630,17 @@ function BookingCard({
   booking,
   facilityName,
   facilityColor,
+  organizationNameStr,
   onSelect,
+  onContextMenu,
   compact,
 }: {
   booking: BookingDTO;
   facilityName: string;
   facilityColor?: string;
+  organizationNameStr?: string;
   onSelect: (b: BookingDTO) => void;
+  onContextMenu?: (e: ReactMouseEvent, b: BookingDTO) => void;
   compact?: boolean;
 }) {
   const isSeason = !!booking.seasonGroupId;
@@ -356,10 +650,12 @@ function BookingCard({
       // Forhindrer at et dobbeltklik på et booking-kort bobler op til
       // dagscellen og fejlagtigt åbner "Ny booking" for dagen ovenpå.
       onDoubleClick={(e) => e.stopPropagation()}
+      onContextMenu={(e) => onContextMenu?.(e, booking)}
+      title={bookingTooltip(booking, facilityName, organizationNameStr)}
       className={`w-full text-left rounded-lg border px-2.5 py-1.5 text-xs hover:shadow-sm transition-shadow ${
         BOOKING_STATUS_CLASSES[booking.status] ?? "bg-slate-100 border-slate-300"
       } ${isSeason ? SEASON_ACCENT_CLASS : ""}`}
-      style={facilityColor ? { borderLeftColor: facilityColor, borderLeftWidth: 3 } : undefined}
+      style={facilityCardStyle(facilityColor, booking.status)}
     >
       <div className="font-medium truncate">
         {isSeason && (
@@ -381,12 +677,16 @@ function ListView({
   bookings,
   facilityName,
   facilityColor,
+  organizationName,
   onSelect,
+  onContextMenu,
 }: {
   bookings: BookingDTO[];
   facilityName: (id: string) => string;
   facilityColor: (id: string) => string;
+  organizationName: (id: string | null) => string | undefined;
   onSelect: (b: BookingDTO) => void;
+  onContextMenu: (e: ReactMouseEvent, b: BookingDTO) => void;
 }) {
   const byDay = new Map<string, BookingDTO[]>();
   for (const b of bookings) {
@@ -409,7 +709,14 @@ function ListView({
           </div>
           <div className="divide-y divide-slate-100">
             {byDay.get(day)!.map((b) => (
-              <button key={b.id} onClick={() => onSelect(b)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 text-left">
+              <button
+                key={b.id}
+                onClick={() => onSelect(b)}
+                onContextMenu={(e) => onContextMenu(e, b)}
+                title={bookingTooltip(b, facilityName(b.facilityId), organizationName(b.organizationId))}
+                className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 text-left border-l-[6px]"
+                style={facilityCardStyle(facilityColor(b.facilityId), b.status)}
+              >
                 <div className="flex items-center gap-3">
                   <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: facilityColor(b.facilityId) }} />
                   <div>
@@ -453,7 +760,9 @@ function WeekView({
   bookings,
   facilityName,
   facilityColor,
+  organizationName,
   onSelect,
+  onContextMenu,
   notesForDay,
   onAddNote,
   onEditNote,
@@ -463,7 +772,9 @@ function WeekView({
   bookings: BookingDTO[];
   facilityName: (id: string) => string;
   facilityColor: (id: string) => string;
+  organizationName: (id: string | null) => string | undefined;
   onSelect: (b: BookingDTO) => void;
+  onContextMenu: (e: ReactMouseEvent, b: BookingDTO) => void;
   notesForDay: (dateStr: string) => DayNoteDTO[];
   onAddNote: (dateStr: string) => void;
   onEditNote: (note: DayNoteDTO) => void;
@@ -508,7 +819,16 @@ function WeekView({
             <div className="p-2 space-y-1.5">
               {dayBookings.length === 0 && <div className="text-[11px] text-slate-300 px-1 py-2">Ledig</div>}
               {dayBookings.map((b) => (
-                <BookingCard key={b.id} booking={b} facilityName={facilityName(b.facilityId)} facilityColor={facilityColor(b.facilityId)} onSelect={onSelect} compact />
+                <BookingCard
+                  key={b.id}
+                  booking={b}
+                  facilityName={facilityName(b.facilityId)}
+                  facilityColor={facilityColor(b.facilityId)}
+                  organizationNameStr={organizationName(b.organizationId)}
+                  onSelect={onSelect}
+                  onContextMenu={onContextMenu}
+                  compact
+                />
               ))}
             </div>
           </div>
@@ -556,13 +876,17 @@ function FacilityWeekView({
   weekStart,
   facilities,
   bookings,
+  organizationName,
   onSelect,
+  onContextMenu,
   onDayDoubleClick,
 }: {
   weekStart: Date;
   facilities: FacilityDTO[];
   bookings: BookingDTO[];
+  organizationName: (id: string | null) => string | undefined;
   onSelect: (b: BookingDTO) => void;
+  onContextMenu: (e: ReactMouseEvent, b: BookingDTO) => void;
   onDayDoubleClick: (dateStr: string, facilityId: string) => void;
 }) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
@@ -582,11 +906,17 @@ function FacilityWeekView({
           hele den ledige bredde imellem sig og kan ses samtidig uden
           sidescroll. min-w-[260px] sikrer stadig læsbare dagsceller hvis
           mange faciliteter vælges på én gang - så falder man tilbage til
-          vandret scroll (overflow-x-auto ovenfor), som før. */}
+          vandret scroll (overflow-x-auto ovenfor), som før. Selve
+          kolonneoverskriften er nu farvet i facilitetens egen farve (i
+          stedet for kun en lille prik), så det er tydeligt hvilken hal man
+          kigger på, når flere står ved siden af hinanden. */}
       <div className="flex gap-4 min-w-full align-top">
         {facilities.map((f) => (
           <div key={f.id} className="flex-1 min-w-[260px] max-w-[560px]">
-            <div className="flex items-center gap-2 mb-2 px-1">
+            <div
+              className="flex items-center gap-2 mb-2 px-2.5 py-1.5 rounded-lg"
+              style={{ backgroundColor: hexToRgba(f.color ?? "#64748b", 0.16) }}
+            >
               <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: f.color ?? "#64748b" }} />
               <div className="font-semibold text-sm text-slate-800 truncate">{f.name}</div>
             </div>
@@ -620,9 +950,12 @@ function FacilityWeekView({
                           key={b.id}
                           onClick={() => onSelect(b)}
                           onDoubleClick={(e) => e.stopPropagation()}
+                          onContextMenu={(e) => onContextMenu(e, b)}
+                          title={bookingTooltip(b, f.name, organizationName(b.organizationId))}
                           className={`w-full text-left rounded-lg px-1.5 py-1 text-[10px] border hover:shadow-sm transition-shadow ${
                             BOOKING_STATUS_CLASSES[b.status] ?? "bg-slate-100 border-slate-300"
                           } ${b.seasonGroupId ? SEASON_ACCENT_CLASS : ""}`}
+                          style={facilityCardStyle(f.color, b.status)}
                         >
                           <div className="font-medium truncate">
                             {b.seasonGroupId && <span className="mr-0.5">↻</span>}
@@ -649,7 +982,10 @@ function MonthView({
   monthStart,
   bookings,
   facilityName,
+  facilityColor,
+  organizationName,
   onSelect,
+  onContextMenu,
   notesForDay,
   onAddNote,
   onEditNote,
@@ -658,7 +994,10 @@ function MonthView({
   monthStart: Date;
   bookings: BookingDTO[];
   facilityName: (id: string) => string;
+  facilityColor: (id: string) => string;
+  organizationName: (id: string | null) => string | undefined;
   onSelect: (b: BookingDTO) => void;
+  onContextMenu: (e: ReactMouseEvent, b: BookingDTO) => void;
   notesForDay: (dateStr: string) => DayNoteDTO[];
   onAddNote: (dateStr: string) => void;
   onEditNote: (note: DayNoteDTO) => void;
@@ -726,10 +1065,12 @@ function MonthView({
                     key={b.id}
                     onClick={() => onSelect(b)}
                     onDoubleClick={(e) => e.stopPropagation()}
+                    onContextMenu={(e) => onContextMenu(e, b)}
+                    title={bookingTooltip(b, facilityName(b.facilityId), organizationName(b.organizationId))}
                     className={`w-full text-left truncate rounded px-1 py-0.5 text-[10px] border ${BOOKING_STATUS_CLASSES[b.status]} ${
                       b.seasonGroupId ? SEASON_ACCENT_CLASS : ""
                     }`}
-                    title={`${b.title} - ${facilityName(b.facilityId)}${b.seasonGroupId ? " (sæsonbooking)" : ""}`}
+                    style={facilityCardStyle(facilityColor(b.facilityId), b.status)}
                   >
                     {b.seasonGroupId && "↻ "}
                     {b.title}
