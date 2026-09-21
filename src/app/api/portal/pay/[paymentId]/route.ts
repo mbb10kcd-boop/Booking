@@ -3,6 +3,7 @@ import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
+import { maybeCreateAccessCode } from "@/lib/accessCodes";
 
 /**
  * Simulerer en vellykket betaling (der findes endnu ikke en rigtig
@@ -21,29 +22,34 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pa
     .where(eq(schema.bookings.id, payment.bookingId));
 
   const [booking] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, payment.bookingId));
-  const code = String(Math.floor(1000 + Math.random() * 9000));
-  await db.insert(schema.accessCodes).values({
-    id: newId("code"),
+  const [facility] = await db.select().from(schema.facilities).where(eq(schema.facilities.id, booking.facilityId));
+  const allFacilities = await db.select().from(schema.facilities);
+
+  // Betalte bookinger (i praksis kun badmintonbanerne) er altid
+  // privatpersoner - foreninger kan ikke booke dem (se hiddenFromOrgPortal) -
+  // så den eneste afgørende faktor her er om lokalet har en kodedør, jf.
+  // src/lib/accessCodes.ts. Badmintonbanerne bruger Træningshallens dør.
+  const code = await maybeCreateAccessCode({
     bookingId: booking.id,
-    facilityId: booking.facilityId,
-    code,
-    validFrom: booking.startsAt,
-    validTo: booking.endsAt,
-    active: true,
-    usageLog: [{ at: new Date().toISOString(), event: "genereret" }],
+    organizationId: booking.organizationId,
+    facility,
+    allFacilities,
+    startsAt: booking.startsAt,
+    endsAt: booking.endsAt,
   });
-  await db.update(schema.bookings).set({ accessCode: code }).where(eq(schema.bookings.id, booking.id));
 
   await db.insert(schema.notificationLog).values({
     id: newId("notif"),
     bookingId: booking.id,
     type: "betalingskvittering",
     recipient: booking.contactEmail ?? "ukendt",
-    subject: "Betaling modtaget - din adgangskode",
-    body: `Tak for din betaling. Din dørkode er ${code}, gyldig ${booking.startsAt} - ${booking.endsAt}.`,
+    subject: code ? "Betaling modtaget - din adgangskode" : "Betaling modtaget",
+    body: code
+      ? `Tak for din betaling. Din dørkode er ${code}, gyldig ${booking.startsAt} - ${booking.endsAt}.`
+      : `Tak for din betaling.`,
   });
 
-  await logAudit("booking", booking.id, "betalt", `Adgangskode ${code} genereret`);
+  await logAudit("booking", booking.id, "betalt", code ? `Adgangskode ${code} genereret` : undefined);
 
   return NextResponse.json({ booking, accessCode: code });
 }

@@ -65,6 +65,17 @@ async function main() {
   await sqlite.execute(
     "UPDATE facilities SET hidden_from_info_screen = 1 WHERE name LIKE 'Badmintonbane%' AND (hidden_from_info_screen IS NULL OR hidden_from_info_screen = 0)"
   );
+  // Idempotent fixup for hvilke lokaler der rent faktisk har en kodedør fra
+  // WeAccess (Martin: "der er kun kodedør på træningshallen og multisalen").
+  // Badmintonbanerne har intet eget felt - de arver Træningshallens dør via
+  // resolveDoorFacilityId() i src/lib/accessCodes.ts, da de deler samme
+  // fysiske indgang. Se we_access_door_id i schema.ts.
+  await sqlite.execute(
+    "UPDATE facilities SET we_access_door_id = 'traeningshallen' WHERE name = 'Træningshallen' AND (we_access_door_id IS NULL OR we_access_door_id = '')"
+  );
+  await sqlite.execute(
+    "UPDATE facilities SET we_access_door_id = 'multisalen' WHERE name = 'Multisalen' AND (we_access_door_id IS NULL OR we_access_door_id = '')"
+  );
 
   if (process.env.FORCE_RESEED !== "1") {
     const existing = await sqlite.execute("SELECT COUNT(*) as c FROM facilities");
@@ -123,7 +134,15 @@ async function main() {
     color: "#a855f7",
     sortOrder: 2,
   };
-  const traeningshallen = { id: id("fac"), name: "Træningshallen", capacity: 150, color: "#059669", sortOrder: 3 };
+  const traeningshallen = {
+    id: id("fac"),
+    name: "Træningshallen",
+    capacity: 150,
+    color: "#059669",
+    sortOrder: 3,
+    // WeAccess-dørens id - se resolveDoorFacilityId() i src/lib/accessCodes.ts.
+    weAccessDoorId: "traeningshallen",
+  };
   const badmintonbaner = [1, 2, 3, 4, 5, 6].map((n) => ({
     id: id("fac"),
     name: `Badmintonbane ${n}`,
@@ -140,7 +159,14 @@ async function main() {
     // og skal ikke optage plads/synlighed på de fastmonterede skærme).
     hiddenFromInfoScreen: true,
   }));
-  const multisalen = { id: id("fac"), name: "Multisalen", capacity: 60, color: "#7c3aed", sortOrder: 10 };
+  const multisalen = {
+    id: id("fac"),
+    name: "Multisalen",
+    capacity: 60,
+    color: "#7c3aed",
+    sortOrder: 10,
+    weAccessDoorId: "multisalen",
+  };
   const moedelokaler = [1, 2, 3, 4].map((n) => ({
     id: id("fac"),
     name: `Mødelokale ${n}`,
@@ -173,6 +199,7 @@ async function main() {
       bookingTypes: [],
       hiddenFromOrgPortal: (f as any).hiddenFromOrgPortal ?? false,
       hiddenFromInfoScreen: (f as any).hiddenFromInfoScreen ?? false,
+      weAccessDoorId: (f as any).weAccessDoorId ?? null,
     });
   }
   console.log(`Oprettede ${allFacilities.length} faciliteter/underressourcer.`);

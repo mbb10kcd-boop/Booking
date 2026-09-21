@@ -107,18 +107,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       source: "portal",
       createdBy: org.name,
     });
-    const code = String(Math.floor(1000 + Math.random() * 9000));
-    await db.insert(schema.accessCodes).values({
-      id: newId("code"),
-      bookingId,
-      facilityId: facility.id,
-      code,
-      validFrom: request.startsAt,
-      validTo: request.endsAt,
-      active: true,
-      usageLog: [{ at: new Date().toISOString(), event: "genereret" }],
-    });
-    await db.update(schema.bookings).set({ accessCode: code }).where(eq(schema.bookings.id, bookingId));
+    // Foreninger får bevidst IKKE en dørkode - dørene står allerede åbne når
+    // de har en booket tid (Martin). Se src/lib/accessCodes.ts.
     await logAudit("booking", bookingId, "oprettet", `Oprettet ved godkendelse af anmodning fra ${org.name}`, "Personalet");
     const [finalBooking] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, bookingId));
     createdBookings.push(finalBooking);

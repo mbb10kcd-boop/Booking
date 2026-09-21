@@ -47,6 +47,8 @@ export function confirmationMessage(opts: {
   startsAt: string;
   endsAt: string;
   recipientName?: string;
+  /** Kun sat for privatpersoner der booker et lokale med kodedør (Træningshallen/Multisalen) - se src/lib/accessCodes.ts. */
+  accessCode?: string | null;
 }): string {
   return `Hej${opts.recipientName ? ` ${opts.recipientName}` : ""}
 
@@ -55,7 +57,9 @@ Din booking er bekræftet:
 ${opts.facilityName}
 ${formatDaDate(opts.startsAt)}
 ${formatDaTime(opts.startsAt)} - ${formatDaTime(opts.endsAt)}
-
+${opts.accessCode ? `
+Dørkode: ${opts.accessCode}
+` : ""}
 Vi glæder os til at se jer.
 
 Venlig hilsen

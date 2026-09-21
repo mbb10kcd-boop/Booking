@@ -5,8 +5,9 @@ import { newId } from "@/lib/ids";
 import { findConflicts } from "@/lib/conflicts";
 import { logAudit } from "@/lib/audit";
 import { confirmationMessage } from "@/lib/ai/messages";
+import { maybeCreateAccessCode } from "@/lib/accessCodes";
 
-/** Offentlig bookingportal: opret en booking som ekstern gæst */
+/** Offentlig bookingportal: opret en booking som ekstern gæst (privatperson) */
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const { facilityId, startsAt, endsAt, name, email, phone } = body;
@@ -52,20 +53,23 @@ export async function POST(req: NextRequest) {
       status: "afventer",
       provider: "ikke_valgt",
     });
+    // Adgangskode genereres først når betalingen er gennemført - se
+    // /api/portal/pay/[paymentId].
   } else {
-    // Ingen betaling påkrævet -> generér adgangskode med det samme
-    const code = String(Math.floor(1000 + Math.random() * 9000));
-    await db.insert(schema.accessCodes).values({
-      id: newId("code"),
+    // Ingen betaling påkrævet -> generér ev. adgangskode med det samme.
+    // Kun relevant for privatpersoner i et lokale med kodedør (Træningshallen
+    // eller Multisalen) - se src/lib/accessCodes.ts. Denne booking har ingen
+    // organizationId (det er den offentlige PRIVATPERSON-portal), så den
+    // eneste afgørende faktor her er om lokalet har en kodedør.
+    const allFacilities = await db.select().from(schema.facilities);
+    const code = await maybeCreateAccessCode({
       bookingId: id,
-      facilityId,
-      code,
-      validFrom: startsAt,
-      validTo: endsAt,
-      active: true,
-      usageLog: [{ at: new Date().toISOString(), event: "genereret" }],
+      organizationId: null,
+      facility,
+      allFacilities,
+      startsAt,
+      endsAt,
     });
-    await db.update(schema.bookings).set({ accessCode: code }).where(eq(schema.bookings.id, id));
 
     await db.insert(schema.notificationLog).values({
       id: newId("notif"),
@@ -73,7 +77,7 @@ export async function POST(req: NextRequest) {
       type: "bekraeftelse",
       recipient: email,
       subject: "Din booking er bekræftet",
-      body: confirmationMessage({ facilityName: facility.name, startsAt, endsAt, recipientName: name }),
+      body: confirmationMessage({ facilityName: facility.name, startsAt, endsAt, recipientName: name, accessCode: code }),
     });
   }
 

@@ -81,18 +81,8 @@ export async function POST(req: NextRequest) {
       createdBy: org.name,
     });
 
-    const code = String(Math.floor(1000 + Math.random() * 9000));
-    await db.insert(schema.accessCodes).values({
-      id: newId("code"),
-      bookingId: id,
-      facilityId: facility.id,
-      code,
-      validFrom: startsAt,
-      validTo: endsAt,
-      active: true,
-      usageLog: [{ at: new Date().toISOString(), event: "genereret" }],
-    });
-    await db.update(schema.bookings).set({ accessCode: code }).where(eq(schema.bookings.id, id));
+    // Foreninger får bevidst IKKE tilsendt en dørkode - dørene står allerede
+    // åbne når de har en booket tid (Martin). Se src/lib/accessCodes.ts.
     await logAudit("booking", id, "oprettet", "Oprettet via foreningsportalen", org.name);
 
     const [finalBooking] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, id));

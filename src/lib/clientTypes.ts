@@ -14,6 +14,7 @@ export interface FacilityDTO {
   restrictions: string | null;
   hiddenFromOrgPortal: boolean | null;
   hiddenFromInfoScreen: boolean | null;
+  weAccessDoorId: string | null;
 }
 
 export interface BookingDTO {

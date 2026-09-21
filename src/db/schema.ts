@@ -42,6 +42,17 @@ export const facilities = sqliteTable("facilities", {
   // ikke fremgå af nogen infoskærm, uanset hvilke faciliteter den enkelte
   // skærm ellers er sat op til at vise) - se /api/screens/[id].
   hiddenFromInfoScreen: integer("hidden_from_info_screen", { mode: "boolean" }).default(false),
+  // Id'et WeAccess bruger for den fysiske kodedør, hvis denne facilitet har
+  // en (fx "traeningshallen"). NULL betyder at faciliteten slet ikke har en
+  // kodedør (fx Opvisningshallen, mødelokalerne, klubsekretariatet) - der er
+  // derfor intet at generere en adgangskode til. En underressource uden sit
+  // eget felt (fx en badmintonbane) arver sin forælders dør - se
+  // resolveDoorFacilityId() i src/lib/accessCodes.ts. Der findes p.t. ingen
+  // offentlig WeAccess-API til at sende koden videre automatisk (undersøgt
+  // september 2026 - kontakt sales@weaccess.dk hvis det skal afklares); indtil
+  // videre er feltet kun en intern markering af HVILKE lokaler der overhovedet
+  // har en kodedør.
+  weAccessDoorId: text("we_access_door_id"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
