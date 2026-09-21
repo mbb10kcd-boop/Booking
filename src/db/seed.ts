@@ -127,6 +127,9 @@ async function main() {
     requiresPayment: true,
     color: "#f97316",
     sortOrder: 3 + n,
+    // Badmintonbanerne skal IKKE kunne vælges i foreningsportalen (se
+    // hiddenFromOrgPortal i schema.ts) - kun i den interne admin-kalender.
+    hiddenFromOrgPortal: true,
   }));
   const multisalen = { id: id("fac"), name: "Multisalen", capacity: 60, color: "#7c3aed", sortOrder: 10 };
   const moedelokaler = [1, 2, 3, 4].map((n) => ({
@@ -159,6 +162,7 @@ async function main() {
       color: f.color,
       sortOrder: f.sortOrder,
       bookingTypes: [],
+      hiddenFromOrgPortal: (f as any).hiddenFromOrgPortal ?? false,
     });
   }
   console.log(`Oprettede ${allFacilities.length} faciliteter/underressourcer.`);
