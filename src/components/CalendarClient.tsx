@@ -745,6 +745,17 @@ function MonthView({
   );
 }
 
+function buildOrganizerMailtoLink(booking: BookingDTO, facilityName: string): string {
+  const name = booking.contactName || "arrangør";
+  const dato = formatDaDate(booking.startsAt);
+  const tid = `${formatDaTime(booking.startsAt)}-${formatDaTime(booking.endsAt)}`;
+  const subject = `Vedr. din booking af ${facilityName} den ${dato}`;
+  const body = `Kære ${name}\n\nVedr. din booking af ${facilityName} den ${dato} kl. ${tid}.\n\n`;
+  return `mailto:${encodeURIComponent(booking.contactEmail || "")}?subject=${encodeURIComponent(
+    subject
+  )}&body=${encodeURIComponent(body)}`;
+}
+
 function BookingDetail({
   booking,
   facilities,
@@ -857,6 +868,14 @@ function BookingDetail({
         </div>
         {booking.status !== "aflyst" && (
           <div className="px-5 py-4 border-t border-slate-100 space-y-2">
+            {booking.contactEmail && (
+              <a
+                href={buildOrganizerMailtoLink(booking, facilityName)}
+                className="block w-full text-center rounded-lg border border-blue-200 text-blue-700 py-2.5 text-sm font-medium hover:bg-blue-50"
+              >
+                Send mail til arrangør
+              </a>
+            )}
             <div className="flex gap-3">
               <button
                 onClick={() => setEditing(true)}
