@@ -59,6 +59,12 @@ async function main() {
   await sqlite.execute(
     "UPDATE facilities SET hidden_from_org_portal = 1 WHERE name LIKE 'Badmintonbane%' AND (hidden_from_org_portal IS NULL OR hidden_from_org_portal = 0)"
   );
+  // Samme idempotente fixup for infoskærmene: badmintonbanerne må aldrig
+  // fremgå af nogen infoskærm (Martin har bedt om at de slet ikke vises der)
+  // - se hiddenFromInfoScreen i schema.ts.
+  await sqlite.execute(
+    "UPDATE facilities SET hidden_from_info_screen = 1 WHERE name LIKE 'Badmintonbane%' AND (hidden_from_info_screen IS NULL OR hidden_from_info_screen = 0)"
+  );
 
   if (process.env.FORCE_RESEED !== "1") {
     const existing = await sqlite.execute("SELECT COUNT(*) as c FROM facilities");
@@ -130,6 +136,9 @@ async function main() {
     // Badmintonbanerne skal IKKE kunne vælges i foreningsportalen (se
     // hiddenFromOrgPortal i schema.ts) - kun i den interne admin-kalender.
     hiddenFromOrgPortal: true,
+    // Skal heller ALDRIG fremgå af infoskærmene (Martin: banerne er interne
+    // og skal ikke optage plads/synlighed på de fastmonterede skærme).
+    hiddenFromInfoScreen: true,
   }));
   const multisalen = { id: id("fac"), name: "Multisalen", capacity: 60, color: "#7c3aed", sortOrder: 10 };
   const moedelokaler = [1, 2, 3, 4].map((n) => ({
@@ -163,6 +172,7 @@ async function main() {
       sortOrder: f.sortOrder,
       bookingTypes: [],
       hiddenFromOrgPortal: (f as any).hiddenFromOrgPortal ?? false,
+      hiddenFromInfoScreen: (f as any).hiddenFromInfoScreen ?? false,
     });
   }
   console.log(`Oprettede ${allFacilities.length} faciliteter/underressourcer.`);
@@ -421,21 +431,43 @@ anders.jensen@gmail.com
 
   // -------------------------------------------------------------------
   // Infoskærme
+  //
+  // Martin: skærmene hænger fast og kan ikke scrolles, så de skal altid
+  // kunne vise deres indhold uden at løbe over. "Reception" er
+  // oversigtsskærmen der viser hele centeret på én gang - her skal
+  // Opvisningshallen, Træningshallen og Multisalen ALTID stå (også hvis de
+  // er helt ledige i dag), mens de øvrige lokaler (mødelokaler,
+  // klubsekretariatet, klatrevæggen) kun fylder på skærmen de dage, hvor de
+  // rent faktisk er booket - se `pinnedFacilityIds` i schema.ts og
+  // udvælgelseslogikken i /api/screens/[id]. Badmintonbanerne er skjult helt
+  // (hiddenFromInfoScreen ovenfor) og optræder derfor slet ikke, uanset
+  // hvilken skærm man ser.
   // -------------------------------------------------------------------
   await db.insert(schema.infoScreens).values([
-    { id: id("screen"), name: "Reception", location: "Indgang", facilityIds: [], layout: "standard" },
+    {
+      id: id("screen"),
+      name: "Reception",
+      location: "Indgang",
+      facilityIds: [], // tomt = alle (ikke-skjulte) faciliteter er i spil
+      pinnedFacilityIds: [opvisningshallen.id, traeningshallen.id, multisalen.id],
+      layout: "standard",
+    },
     {
       id: id("screen"),
       name: "Opvisningshallen",
       location: "Ved Opvisningshallen",
       facilityIds: [opvisningshallen.id, klatrevaeg.id],
+      pinnedFacilityIds: [opvisningshallen.id, klatrevaeg.id],
       layout: "enkelt_facilitet",
     },
     {
       id: id("screen"),
       name: "Træningshallen",
       location: "Ved Træningshallen",
-      facilityIds: [traeningshallen.id, ...badmintonbaner.map((b) => b.id)],
+      // Badmintonbanerne er bevidst IKKE med her længere - de skal aldrig
+      // vises på nogen infoskærm (se hiddenFromInfoScreen).
+      facilityIds: [traeningshallen.id],
+      pinnedFacilityIds: [traeningshallen.id],
       layout: "enkelt_facilitet",
     },
   ]);

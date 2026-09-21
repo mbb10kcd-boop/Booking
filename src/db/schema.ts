@@ -38,6 +38,10 @@ export const facilities = sqliteTable("facilities", {
   // bookes af privatpersoner) - påvirker IKKE den almindelige administration,
   // pedelvisningen eller den offentlige portal for privatpersoner.
   hiddenFromOrgPortal: integer("hidden_from_org_portal", { mode: "boolean" }).default(false),
+  // Skjuler faciliteten HELT på infoskærmene (fx badmintonbanerne - de må
+  // ikke fremgå af nogen infoskærm, uanset hvilke faciliteter den enkelte
+  // skærm ellers er sat op til at vise) - se /api/screens/[id].
+  hiddenFromInfoScreen: integer("hidden_from_info_screen", { mode: "boolean" }).default(false),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -288,6 +292,16 @@ export const infoScreens = sqliteTable("info_screens", {
   name: text("name").notNull(),
   location: text("location"),
   facilityIds: text("facility_ids", { mode: "json" }).$type<string[]>().default(
+    sql`'[]'`
+  ),
+  // Faciliteter der ALTID vises på denne skærm, også selvom de ikke har
+  // nogen booking i dag (fx "Ledig hele dagen") - fx de tre store haller på
+  // oversigtsskærmen. Faciliteter der er i `facilityIds` (eller alle, hvis
+  // `facilityIds` er tom) men IKKE i `pinnedFacilityIds`, vises kun på
+  // skærmen de dage, hvor de rent faktisk har en booking - så skærmen ikke
+  // skal bruge plads (og risikere at skulle scrolle, hvilket ikke er muligt
+  // på en fastmonteret infoskærm) på tomme lokaler. Se /api/screens/[id].
+  pinnedFacilityIds: text("pinned_facility_ids", { mode: "json" }).$type<string[]>().default(
     sql`'[]'`
   ),
   layout: text("layout", { enum: ["standard", "kompakt", "enkelt_facilitet"] })
