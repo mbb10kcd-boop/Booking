@@ -34,6 +34,10 @@ export const facilities = sqliteTable("facilities", {
   color: text("color").default("#2563eb"),
   sortOrder: integer("sort_order").default(0),
   archived: integer("archived", { mode: "boolean" }).default(false),
+  // Skjuler faciliteten i foreningsportalen (fx badmintonbanerne, som kun må
+  // bookes af privatpersoner) - påvirker IKKE den almindelige administration,
+  // pedelvisningen eller den offentlige portal for privatpersoner.
+  hiddenFromOrgPortal: integer("hidden_from_org_portal", { mode: "boolean" }).default(false),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -54,6 +58,13 @@ export const organizations = sqliteTable("organizations", {
   contactPhone: text("contact_phone"),
   notes: text("notes"),
   billingInfo: text("billing_info"),
+  // Foreninger oprettet via foreningsportalen ("Opret forening") starter som
+  // "afventer_godkendelse" og kan ikke bruges til at booke, før personalet
+  // har godkendt dem i administrationen (se /foreninger). Foreninger oprettet
+  // direkte af personalet er godkendt med det samme (standardværdien).
+  status: text("status", { enum: ["godkendt", "afventer_godkendelse", "afvist"] })
+    .notNull()
+    .default("godkendt"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -112,6 +123,10 @@ export const bookings = sqliteTable("bookings", {
     enum: ["ikke_paakraevet", "afventer", "betalt", "annulleret", "refunderet"],
   }).default("ikke_paakraevet"),
   accessCode: text("access_code"),
+  // Ekstra notifikationsmodtager tilføjet af en forening ved booking via
+  // foreningsportalen - fremtidige aflysninger/flytninger sendes til BÅDE
+  // denne og den registrerede kontaktmail (contactEmail/foreningens mail).
+  extraEmail: text("extra_email"),
   notes: text("notes"),
   source: text("source", {
     enum: ["manuel", "mail", "portal", "pedel", "saesonimport"],

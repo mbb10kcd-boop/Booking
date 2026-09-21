@@ -52,6 +52,14 @@ async function main() {
   // Springer derfor automatisk seedingen over, hvis der allerede er data
   // (fx en rigtig facilitet oprettet af en administrator). Sæt
   // FORCE_RESEED=1 hvis man bevidst vil nulstille til demo-data igen.
+  // Sikrer at badmintonbanerne er skjult i foreningsportalen, uanset om vi
+  // reseeder eller ej herunder (kører derfor FØR "spring over"-tjekket) - se
+  // hiddenFromOrgPortal i schema.ts. Idempotent: kan trygt køre ved hver
+  // deploy uden at påvirke andre felter.
+  await sqlite.execute(
+    "UPDATE facilities SET hidden_from_org_portal = 1 WHERE name LIKE 'Badmintonbane%' AND (hidden_from_org_portal IS NULL OR hidden_from_org_portal = 0)"
+  );
+
   if (process.env.FORCE_RESEED !== "1") {
     const existing = await sqlite.execute("SELECT COUNT(*) as c FROM facilities");
     const count = Number((existing.rows[0] as { c?: number | string })?.c ?? 0);

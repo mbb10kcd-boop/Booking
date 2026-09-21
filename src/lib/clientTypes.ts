@@ -12,6 +12,7 @@ export interface FacilityDTO {
   archived: boolean | null;
   bookingTypes: string[] | null;
   restrictions: string | null;
+  hiddenFromOrgPortal: boolean | null;
 }
 
 export interface BookingDTO {
@@ -30,6 +31,7 @@ export interface BookingDTO {
   price: number | null;
   paymentStatus: string | null;
   accessCode: string | null;
+  extraEmail: string | null;
   notes: string | null;
   source: string | null;
 }
@@ -51,4 +53,5 @@ export interface OrganizationDTO {
   contactEmail: string | null;
   contactPhone: string | null;
   notes: string | null;
+  status: "godkendt" | "afventer_godkendelse" | "afvist";
 }

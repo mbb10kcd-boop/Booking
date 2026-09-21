@@ -127,6 +127,52 @@ Grenaa Idrætscenter`;
  * oprettet på én gang, jf. `seasonGroupId`) - sendes kun ÉN gang for hele
  * sæsonen, i modsætning til `confirmationMessage` som er pr. enkelt booking.
  */
+export function movedMessage(opts: {
+  facilityName: string;
+  startsAt: string;
+  endsAt: string;
+  recipientName?: string;
+}): string {
+  return `Hej${opts.recipientName ? ` ${opts.recipientName}` : ""}
+
+Jeres booking er blevet flyttet til:
+
+${opts.facilityName}
+${formatDaDate(opts.startsAt)}
+${formatDaTime(opts.startsAt)} - ${formatDaTime(opts.endsAt)}
+
+Kontakt os endelig, hvis I har spørgsmål.
+
+Venlig hilsen
+Grenaa Idrætscenter`;
+}
+
+/**
+ * Bekræftelsesbesked når en forening booker FLERE faciliteter på én gang i
+ * foreningsportalen (samme dato/tidsrum, fx både et mødelokale og en hal) -
+ * lister dem alle i én mail i stedet for én mail pr. facilitet.
+ */
+export function foreningBookingConfirmationMessage(opts: {
+  organizationName: string;
+  facilityNames: string[];
+  startsAt: string;
+  endsAt: string;
+  note?: string;
+}): string {
+  return `Hej ${opts.organizationName}
+
+Jeres booking er bekræftet:
+
+${opts.facilityNames.map((n) => `- ${n}`).join("\n")}
+${formatDaDate(opts.startsAt)}
+${formatDaTime(opts.startsAt)} - ${formatDaTime(opts.endsAt)}
+${opts.note ? `\nNote: ${opts.note}\n` : ""}
+Vi glæder os til at se jer.
+
+Venlig hilsen
+Grenaa Idrætscenter`;
+}
+
 export function seasonConfirmationMessage(opts: {
   facilityName: string;
   weekday: number; // 0=søndag..6=lørdag, ligesom recurrenceRule.weekday

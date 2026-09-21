@@ -3,21 +3,33 @@ import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
 import { logAudit } from "@/lib/audit";
 import { findConflicts, findWarnings } from "@/lib/conflicts";
-import { cancellationMessage } from "@/lib/ai/messages";
+import { cancellationMessage, movedMessage } from "@/lib/ai/messages";
 import { newId } from "@/lib/ids";
 
 /**
- * Sender (simuleret) aflysningsmail til en bookings kontakt - falder tilbage
- * til foreningens registrerede kontaktmail, hvis bookingen ikke selv har en
- * (samme mønster som ved "overtag tid" i mailindbakken, se inboxActions.ts).
+ * Finder alle mailadresser en besked om denne booking skal sendes til: den
+ * registrerede kontaktmail (eller foreningens, hvis bookingen ikke selv har
+ * en - samme mønster som ved "overtag tid" i mailindbakken, se
+ * inboxActions.ts) OG en eventuel ekstra mail tilføjet via foreningsportalen
+ * (se extraEmail i schema.ts) - dubletter fjernes.
+ */
+async function resolveNotificationRecipients(booking: typeof schema.bookings.$inferSelect): Promise<string[]> {
+  let primary = booking.contactEmail;
+  if (!primary && booking.organizationId) {
+    const [org] = await db.select().from(schema.organizations).where(eq(schema.organizations.id, booking.organizationId));
+    primary = org?.contactEmail ?? null;
+  }
+  const recipients = [primary, booking.extraEmail].filter((r): r is string => !!r);
+  return Array.from(new Set(recipients));
+}
+
+/**
+ * Sender (simuleret) aflysningsmail til bookingens kontakt(er) - se
+ * resolveNotificationRecipients.
  */
 async function notifyCancellation(booking: typeof schema.bookings.$inferSelect) {
-  let recipient = booking.contactEmail;
-  if (!recipient && booking.organizationId) {
-    const [org] = await db.select().from(schema.organizations).where(eq(schema.organizations.id, booking.organizationId));
-    recipient = org?.contactEmail ?? null;
-  }
-  if (!recipient) return;
+  const recipients = await resolveNotificationRecipients(booking);
+  if (recipients.length === 0) return;
 
   const [facility] = await db.select().from(schema.facilities).where(eq(schema.facilities.id, booking.facilityId));
   const message = cancellationMessage({
@@ -26,14 +38,44 @@ async function notifyCancellation(booking: typeof schema.bookings.$inferSelect) 
     endsAt: booking.endsAt,
     recipientName: booking.contactName ?? undefined,
   });
-  await db.insert(schema.notificationLog).values({
-    id: newId("notif"),
-    bookingId: booking.id,
-    type: "aflysning",
-    recipient,
-    subject: "Aflysning af jeres booking",
-    body: message,
+  for (const recipient of recipients) {
+    await db.insert(schema.notificationLog).values({
+      id: newId("notif"),
+      bookingId: booking.id,
+      type: "aflysning",
+      recipient,
+      subject: "Aflysning af jeres booking",
+      body: message,
+    });
+  }
+}
+
+/**
+ * Sender (simuleret) besked om at bookingen er flyttet til nyt tidspunkt
+ * og/eller ny facilitet, til bookingens kontakt(er) - se
+ * resolveNotificationRecipients. `updated` er bookingen EFTER flytningen.
+ */
+async function notifyMove(updated: typeof schema.bookings.$inferSelect) {
+  const recipients = await resolveNotificationRecipients(updated);
+  if (recipients.length === 0) return;
+
+  const [facility] = await db.select().from(schema.facilities).where(eq(schema.facilities.id, updated.facilityId));
+  const message = movedMessage({
+    facilityName: facility?.name ?? "faciliteten",
+    startsAt: updated.startsAt,
+    endsAt: updated.endsAt,
+    recipientName: updated.contactName ?? undefined,
   });
+  for (const recipient of recipients) {
+    await db.insert(schema.notificationLog).values({
+      id: newId("notif"),
+      bookingId: updated.id,
+      type: "aendring",
+      recipient,
+      subject: "Jeres booking er flyttet",
+      body: message,
+    });
+  }
 }
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -85,13 +127,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const action = body.status === "aflyst" ? "aflyst" : timeOrFacilityChanged ? "flyttet" : "opdateret";
   await logAudit("booking", id, action, JSON.stringify(body));
 
+  const [updated] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, id));
+
   // Kun send aflysningsmail hvis den rent faktisk lige er blevet aflyst
   // (ikke hvis den allerede var aflyst - undgår dobbelt-besked).
   if (body.status === "aflyst" && existing.status !== "aflyst") {
     await notifyCancellation({ ...existing, ...body });
+  } else if (timeOrFacilityChanged && updated && updated.status !== "aflyst") {
+    await notifyMove(updated);
   }
 
-  const [updated] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, id));
   return NextResponse.json({ ...updated, warnings });
 }
 
