@@ -37,3 +37,5 @@ Kør `npm run db:seed` igen når som helst for at nulstille til demodata.
 
 Next.js (App Router, TypeScript), Tailwind CSS, Drizzle ORM + SQLite (se
 ARKITEKTUR.md for hvorfor Drizzle blev valgt frem for Prisma i dette miljø).
+
+<!-- test: bekræfter direkte push fra Martins computer virker -->
