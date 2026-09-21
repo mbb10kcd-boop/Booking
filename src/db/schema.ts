@@ -285,6 +285,13 @@ export const accessCodes = sqliteTable("access_codes", {
   id: text("id").primaryKey(),
   bookingId: text("booking_id").notNull(),
   facilityId: text("facility_id").notNull(),
+  // Hvilken fysisk kodedør denne kode gælder for (matcher weAccessDoorId på
+  // facilities, fx "traeningshallen") - IKKE nødvendigvis samme værdi som
+  // facilityId, da flere faciliteter (fx alle badmintonbanerne) deler samme
+  // dør. Bruges til at finde ledige koder i door_code_pool - se
+  // assignPoolCode() i src/lib/accessCodes.ts. Kan være NULL for koder
+  // oprettet før dette felt blev tilføjet.
+  doorId: text("door_id"),
   code: text("code").notNull(),
   validFrom: text("valid_from").notNull(),
   validTo: text("valid_to").notNull(),
@@ -292,6 +299,32 @@ export const accessCodes = sqliteTable("access_codes", {
   usageLog: text("usage_log", { mode: "json" }).$type<
     { at: string; event: string }[]
   >().default(sql`'[]'`),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// ---------------------------------------------------------------------------
+// Dørkode-pulje: WeAccess (og tilsyneladende heller ikke andre undersøgte
+// låsefabrikater som TTLock, medmindre man selv anskaffer ekstra gateway-
+// hardware og et udviklerabonnement) tilbyder ikke en brugbar måde at sende
+// en NY kode automatisk til selve låsen. Løsningen (Martins forslag) er i
+// stedet et fast sæt koder, som personalet ÉN gang taster direkte ind i den
+// fysiske kodelås/kodetastatur (langt de fleste kodelåse understøtter i
+// forvejen adskillige faste brugerkoder, uafhængigt af om der findes noget
+// "smart"/API-lag ovenpå). Systemet holder derefter selv styr på HVEM der
+// har hvilken kode hvornår, ved kun at tildele en kode fra puljen når den
+// ikke allerede er i brug af en anden aktiv booking i et overlappende
+// tidsrum på samme dør - se assignPoolCode() i src/lib/accessCodes.ts og
+// /doerkoder for den fulde liste, personalet skal indtaste i låsene.
+//
+// Koderne er bevidst FASTE (skrevet direkte i src/db/seed.ts, ikke
+// genereret tilfældigt ved hver deploy) - ellers ville de koder systemet
+// viser til gæsterne ikke længere stemme med det, der rent fysisk står
+// programmeret i låsen.
+// ---------------------------------------------------------------------------
+export const doorCodePool = sqliteTable("door_code_pool", {
+  id: text("id").primaryKey(),
+  doorId: text("door_id").notNull(), // matcher weAccessDoorId, fx "traeningshallen"
+  code: text("code").notNull(),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 

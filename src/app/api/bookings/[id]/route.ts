@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { logAudit } from "@/lib/audit";
 import { findConflicts, findWarnings } from "@/lib/conflicts";
 import { notifyCancellation, notifyMove } from "@/lib/notifications";
+import { maybeCreateAccessCode } from "@/lib/accessCodes";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -50,6 +51,33 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .update(schema.bookings)
     .set({ ...body, updatedAt: new Date().toISOString() })
     .where(eq(schema.bookings.id, id));
+
+  // Tid og/eller facilitet ændret: en evt. eksisterende adgangskode gælder
+  // muligvis et forkert tidsrum eller en forkert dør nu (eller er slet ikke
+  // længere berettiget, fx hvis bookingen flyttes til et lokale uden
+  // kodedør) - se src/lib/accessCodes.ts. Nulstil og beregn i så fald forfra
+  // i stedet for at lade en kode fra kodepuljen blive stående og optage
+  // plads i puljen på et tidsrum den ikke længere dækker.
+  if (timeOrFacilityChanged) {
+    await db.delete(schema.accessCodes).where(eq(schema.accessCodes.bookingId, id));
+    await db.update(schema.bookings).set({ accessCode: null }).where(eq(schema.bookings.id, id));
+
+    const nextStatus = body.status ?? existing.status;
+    if (nextStatus !== "aflyst" && nextStatus !== "afvist") {
+      const [nextFacility] = await db.select().from(schema.facilities).where(eq(schema.facilities.id, nextFacilityId));
+      if (nextFacility) {
+        const allFacilities = await db.select().from(schema.facilities);
+        await maybeCreateAccessCode({
+          bookingId: id,
+          organizationId: body.organizationId ?? existing.organizationId,
+          facility: nextFacility,
+          allFacilities,
+          startsAt: nextStartsAt,
+          endsAt: nextEndsAt,
+        });
+      }
+    }
+  }
 
   const action = body.status === "aflyst" ? "aflyst" : timeOrFacilityChanged ? "flyttet" : "opdateret";
   await logAudit("booking", id, action, JSON.stringify(body));

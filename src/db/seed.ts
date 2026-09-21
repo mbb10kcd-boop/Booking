@@ -77,6 +77,41 @@ async function main() {
     "UPDATE facilities SET we_access_door_id = 'multisalen' WHERE name = 'Multisalen' AND (we_access_door_id IS NULL OR we_access_door_id = '')"
   );
 
+  // Faste dørkode-puljer (Martins forslag, da hverken WeAccess eller andre
+  // undersøgte låsefabrikater tilbyder en brugbar API til at sende nye koder
+  // automatisk - se doorCodePool i schema.ts): 20 faste koder pr. kodedør,
+  // som personalet selv taster ind i den fysiske lås én gang. Koderne er
+  // bevidst skrevet som faste tal herunder (ALDRIG genereret tilfældigt) -
+  // ellers ville de ikke længere stemme med det, der rent fysisk står i
+  // låsen. Indsættes kun hvis puljen for den pågældende dør er helt tom, så
+  // den aldrig overskrives af en senere reseed. Se /doerkoder for oversigten
+  // personalet skal bruge til selve indtastningen i låsene.
+  const DOOR_CODE_POOLS: Record<string, string[]> = {
+    traeningshallen: [
+      "4960", "1602", "4120", "2274", "1745", "3580", "7211", "6715", "4081", "6417",
+      "6358", "2153", "6861", "5698", "2137", "7645", "4253", "1456", "9987", "9230",
+    ],
+    multisalen: [
+      "4245", "7955", "5680", "8613", "9787", "9345", "3055", "1573", "8108", "1922",
+      "5356", "7950", "9090", "4342", "3993", "3791", "2019", "3262", "9690", "6353",
+    ],
+  };
+  for (const [doorId, codes] of Object.entries(DOOR_CODE_POOLS)) {
+    const existingPool = await sqlite.execute({
+      sql: "SELECT COUNT(*) as c FROM door_code_pool WHERE door_id = ?",
+      args: [doorId],
+    });
+    const poolCount = Number((existingPool.rows[0] as { c?: number | string })?.c ?? 0);
+    if (poolCount === 0) {
+      for (const code of codes) {
+        await sqlite.execute({
+          sql: "INSERT INTO door_code_pool (id, door_id, code, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+          args: [id("doorcode"), doorId, code],
+        });
+      }
+    }
+  }
+
   if (process.env.FORCE_RESEED !== "1") {
     const existing = await sqlite.execute("SELECT COUNT(*) as c FROM facilities");
     const count = Number((existing.rows[0] as { c?: number | string })?.c ?? 0);
