@@ -1261,6 +1261,11 @@ function DayGridView({
   const hourMarks = Array.from({ length: totalMinutes / 60 + 1 }, (_, i) => gridStartMin + i * 60);
 
   function startDrag(e: ReactPointerEvent, booking: BookingDTO, mode: DayDragMode) {
+    // Kun venstre museknap/primær pointer skal starte et træk - ellers vil et
+    // højreklik (som også udløser en pointerdown) blive tolket som et
+    // "klik uden bevægelse" i onUp og åbne detalje-boksen i stedet for at
+    // lade den almindelige onContextMenu-håndtering vise højreklik-menuen.
+    if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
     const start = parseNaiveDateTime(booking.startsAt);
