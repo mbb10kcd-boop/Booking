@@ -18,12 +18,12 @@ import {
   SEASON_BADGE_LABEL,
   weekdayName,
 } from "@/lib/statusLabels";
-import { formatDaDate, formatDaTime } from "@/lib/ai/messages";
-import { localISODate, nowLocalDateTimeString, roundDateTimeLocalString } from "@/lib/date";
+import { capitalizeDaDate, formatDaDate, formatDaTime } from "@/lib/ai/messages";
+import { isoWeekNumber, localISODate, nowLocalDateTimeString, roundDateTimeLocalString } from "@/lib/date";
 import { BookingFormModal } from "./BookingFormModal";
 import { DayNoteModal } from "./DayNoteModal";
 
-type ViewMode = "liste" | "uge" | "facilitet" | "maaned" | "dag";
+type ViewMode = "liste" | "uge" | "ugeplan" | "facilitet" | "maaned" | "dag";
 
 function startOfWeek(d: Date): Date {
   const date = new Date(d);
@@ -208,7 +208,7 @@ export function CalendarClient({
   const rangeStart = useMemo(() => {
     // "facilitet"-visningen (flere faciliteter side om side for ugen, jf.
     // GIBBS' ressourcekalender) bruger samme uge-interval som "uge".
-    if (view === "uge" || view === "facilitet") return startOfWeek(anchor);
+    if (view === "uge" || view === "ugeplan" || view === "facilitet") return startOfWeek(anchor);
     if (view === "maaned") return startOfMonth(anchor);
     if (view === "dag") {
       const d = new Date(anchor);
@@ -219,7 +219,7 @@ export function CalendarClient({
   }, [view, anchor]);
 
   const rangeEnd = useMemo(() => {
-    if (view === "uge" || view === "facilitet") return addDays(startOfWeek(anchor), 7);
+    if (view === "uge" || view === "ugeplan" || view === "facilitet") return addDays(startOfWeek(anchor), 7);
     if (view === "maaned") {
       const start = startOfMonth(anchor);
       return new Date(start.getFullYear(), start.getMonth() + 1, 1);
@@ -455,7 +455,7 @@ export function CalendarClient({
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
             <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
-              {(["liste", "uge", "facilitet", "dag", "maaned"] as ViewMode[]).map((v) => (
+              {(["liste", "uge", "ugeplan", "facilitet", "dag", "maaned"] as ViewMode[]).map((v) => (
                 <button
                   key={v}
                   onClick={() => setView(v)}
@@ -463,7 +463,15 @@ export function CalendarClient({
                     view === v ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
-                  {v === "maaned" ? "Måned" : v === "facilitet" ? "Faciliteter" : v === "dag" ? "Dagsplan" : v}
+                  {v === "maaned"
+                    ? "Måned"
+                    : v === "facilitet"
+                      ? "Faciliteter"
+                      : v === "dag"
+                        ? "Dagsplan"
+                        : v === "ugeplan"
+                          ? "Ugeplan"
+                          : v}
                 </button>
               ))}
             </div>
@@ -471,10 +479,18 @@ export function CalendarClient({
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setAnchor((a) => addDays(a, view === "maaned" ? -30 : view === "dag" ? -1 : -7))}
-                  data-day-shift={view === "dag" ? "-1" : undefined}
-                  title={view === "dag" ? "Forrige dag - træk en booking herhen for at flytte den en dag tilbage" : undefined}
+                  data-day-shift={view === "dag" ? "-1" : view === "ugeplan" ? "-7" : undefined}
+                  title={
+                    view === "dag"
+                      ? "Forrige dag - træk en booking herhen for at flytte den en dag tilbage"
+                      : view === "ugeplan"
+                        ? "Forrige uge - træk en booking herhen for at flytte den en uge tilbage"
+                        : undefined
+                  }
                   className={`w-8 h-8 rounded-lg border text-slate-600 hover:bg-slate-50 transition-colors ${
-                    view === "dag" && dayDragActive ? "border-blue-400 bg-blue-50 ring-2 ring-blue-300" : "border-slate-200 bg-white"
+                    (view === "dag" || view === "ugeplan") && dayDragActive
+                      ? "border-blue-400 bg-blue-50 ring-2 ring-blue-300"
+                      : "border-slate-200 bg-white"
                   }`}
                 >
                   &larr;
@@ -487,10 +503,18 @@ export function CalendarClient({
                 </button>
                 <button
                   onClick={() => setAnchor((a) => addDays(a, view === "maaned" ? 30 : view === "dag" ? 1 : 7))}
-                  data-day-shift={view === "dag" ? "1" : undefined}
-                  title={view === "dag" ? "Næste dag - træk en booking herhen for at flytte den en dag frem" : undefined}
+                  data-day-shift={view === "dag" ? "1" : view === "ugeplan" ? "7" : undefined}
+                  title={
+                    view === "dag"
+                      ? "Næste dag - træk en booking herhen for at flytte den en dag frem"
+                      : view === "ugeplan"
+                        ? "Næste uge - træk en booking herhen for at flytte den en uge frem"
+                        : undefined
+                  }
                   className={`w-8 h-8 rounded-lg border text-slate-600 hover:bg-slate-50 transition-colors ${
-                    view === "dag" && dayDragActive ? "border-blue-400 bg-blue-50 ring-2 ring-blue-300" : "border-slate-200 bg-white"
+                    (view === "dag" || view === "ugeplan") && dayDragActive
+                      ? "border-blue-400 bg-blue-50 ring-2 ring-blue-300"
+                      : "border-slate-200 bg-white"
                   }`}
                 >
                   &rarr;
@@ -542,6 +566,24 @@ export function CalendarClient({
             onAddNote={(dateStr) => setNoteModal({ date: dateStr })}
             onEditNote={(note) => setNoteModal({ date: note.date, note })}
             onDayDoubleClick={openNewBookingFor}
+          />
+        )}
+        {view === "ugeplan" && (
+          <WeekGridView
+            weekStart={rangeStart}
+            facilities={facilities.filter((f) => !f.archived && selectedFacilityIds.has(f.id))}
+            bookings={visibleBookings}
+            facilityName={facilityName}
+            facilityColor={facilityColor}
+            organizationName={organizationName}
+            onSelect={setSelectedBooking}
+            onContextMenu={openContextMenu}
+            notesForDay={notesForDay}
+            onAddNote={(dateStr) => setNoteModal({ date: dateStr })}
+            onEditNote={(note) => setNoteModal({ date: note.date, note })}
+            onDayDoubleClick={openNewBookingFor}
+            onCommit={(booking, pending) => applyBookingChange(booking, pending, false)}
+            onDragActiveChange={setDayDragActive}
           />
         )}
         {view === "facilitet" && (
@@ -1408,7 +1450,11 @@ function DayGridView({
   }
 
   return (
-    <div className="overflow-x-auto pb-2 select-none">
+    <div className="select-none">
+      <div className="mb-3 text-sm font-semibold text-slate-700">
+        {capitalizeDaDate(formatDaDate(day.toISOString()))} &middot; Uge {isoWeekNumber(day)}
+      </div>
+      <div className="overflow-x-auto pb-2">
       <div className="flex min-w-full items-start">
         {/* Tidsakse-gutter */}
         <div className="w-12 shrink-0 relative" style={{ height: gridHeight + 32 }}>
@@ -1509,9 +1555,481 @@ function DayGridView({
           </div>
         ))}
       </div>
+      </div>
       <div className="text-xs text-slate-400 mt-2">
         Træk et kort for at flytte det til et andet tidspunkt eller en anden facilitet - eller hen over ←/→-knapperne
         for at flytte det til forrige/næste dag. Træk i kortets top- eller bundkant for at forlænge/afkorte det.
+      </div>
+    </div>
+  );
+}
+
+interface WeekDragState {
+  bookingId: string;
+  mode: DayDragMode;
+  startClientY: number;
+  originDayStr: string;
+  originStartMin: number;
+  originEndMin: number;
+  currentDayStr: string;
+  currentStartMin: number;
+  currentEndMin: number;
+  weekShift: number;
+}
+
+/**
+ * Pakker overlappende bookinger på samme dag ind i "baner" (lanes) side om
+ * side, så to samtidige bookinger (fx to forskellige haller på samme
+ * klokkeslæt) ikke visuelt overlapper hinanden i ugeplanens dag-kolonner -
+ * i modsætning til Dagsplan-visningen, hvor hver facilitet allerede har sin
+ * egen kolonne, har ugeplanens kolonner kun plads til én dimension (dagen),
+ * så facilitets-adskillelsen må ske vandret INDENFOR dagens kolonne i
+ * stedet. Grupperer først transitivt overlappende bookinger i klynger, og
+ * fordeler dem derefter grådigt i baner indenfor hver klynge (samme
+ * standardteknik som de fleste kalender-UI'er bruger).
+ */
+function layoutDayBookings(dayBookings: BookingDTO[]): Map<string, { lane: number; laneCount: number }> {
+  const events = dayBookings
+    .map((b) => {
+      const startMin = minutesOfDay(parseNaiveDateTime(b.startsAt));
+      const startDay = b.startsAt.slice(0, 10);
+      const endDay = b.endsAt.slice(0, 10);
+      const endMin = endDay === startDay ? minutesOfDay(parseNaiveDateTime(b.endsAt)) : 24 * 60;
+      return { b, startMin, endMin };
+    })
+    .sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+
+  const layout = new Map<string, { lane: number; laneCount: number }>();
+  let cluster: typeof events = [];
+  let clusterMaxEnd = -Infinity;
+
+  function flush() {
+    if (cluster.length === 0) return;
+    const laneEnds: number[] = [];
+    const assigned: { id: string; lane: number }[] = [];
+    for (const ev of cluster) {
+      let lane = laneEnds.findIndex((end) => end <= ev.startMin);
+      if (lane === -1) {
+        lane = laneEnds.length;
+        laneEnds.push(ev.endMin);
+      } else {
+        laneEnds[lane] = ev.endMin;
+      }
+      assigned.push({ id: ev.b.id, lane });
+    }
+    const laneCount = laneEnds.length;
+    for (const a of assigned) layout.set(a.id, { lane: a.lane, laneCount });
+    cluster = [];
+    clusterMaxEnd = -Infinity;
+  }
+
+  for (const ev of events) {
+    if (cluster.length > 0 && ev.startMin >= clusterMaxEnd) {
+      flush();
+    }
+    cluster.push(ev);
+    clusterMaxEnd = Math.max(clusterMaxEnd, ev.endMin);
+  }
+  flush();
+
+  return layout;
+}
+
+/**
+ * Ugeplan: samme slags tidsakse-skema som Dagsplan, men for en hel uge ad
+ * gangen - ugens 7 dage som kolonner og klokkeslæt ned ad y-aksen, i stedet
+ * for facilitet-kolonner (Martin efterspurgte "den samme visning" i en
+ * ugevisning). Facilitet vises i stedet via farve + navn på selve kortet,
+ * og flere samtidige bookinger på samme dag pakkes side om side (se
+ * `layoutDayBookings`).
+ *
+ * - Træk et kort: flytter bookingen til et nyt klokkeslæt (rundet til
+ *   nærmeste halve time) og/eller en anden dag i ugen. Faciliteten ændres
+ *   IKKE her (der er ingen facilitet-kolonne at slippe den i) - skift af
+ *   facilitet foregår stadig via redigering af selve bookingen.
+ * - Træk hen over pil-knapperne i værktøjslinjen ("forrige/næste uge"):
+ *   flytter bookingen en hel uge frem eller tilbage, uændret klokkeslæt/dag
+ *   i ugen/facilitet.
+ * - Træk i kortets top- eller bundkant: forlænger/afkorter bookingen.
+ *
+ * Konflikt ved slip håndteres af `onCommit` i CalendarClient med samme
+ * to-valgsboks som Dagsplan og almindelig redigering.
+ */
+function WeekGridView({
+  weekStart,
+  facilities,
+  bookings,
+  facilityName,
+  facilityColor,
+  organizationName,
+  onSelect,
+  onContextMenu,
+  notesForDay,
+  onAddNote,
+  onEditNote,
+  onDayDoubleClick,
+  onCommit,
+  onDragActiveChange,
+}: {
+  weekStart: Date;
+  facilities: FacilityDTO[];
+  bookings: BookingDTO[];
+  facilityName: (id: string) => string;
+  facilityColor: (id: string) => string;
+  organizationName: (id: string | null) => string | undefined;
+  onSelect: (b: BookingDTO) => void;
+  onContextMenu: (e: ReactMouseEvent, b: BookingDTO) => void;
+  notesForDay: (dateStr: string) => DayNoteDTO[];
+  onAddNote: (dateStr: string) => void;
+  onEditNote: (note: DayNoteDTO) => void;
+  onDayDoubleClick: (dateStr: string, facilityId?: string, timeHHMM?: string) => void;
+  onCommit: (booking: BookingDTO, pending: { facilityId: string; startsAt: string; endsAt: string }) => void;
+  onDragActiveChange: (active: boolean) => void;
+}) {
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const dayStrs = days.map((d) => localISODate(d));
+
+  const [drag, setDrag] = useState<WeekDragState | null>(null);
+  const dragRef = useRef<WeekDragState | null>(null);
+  const bookingsRef = useRef<BookingDTO[]>(bookings);
+
+  useEffect(() => {
+    dragRef.current = drag;
+  }, [drag]);
+
+  useEffect(() => {
+    bookingsRef.current = bookings;
+  }, [bookings]);
+
+  useEffect(() => {
+    onDragActiveChange(drag !== null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag !== null]);
+
+  const weekBookings = bookings.filter(
+    (b) => dayStrs.includes(b.startsAt.slice(0, 10)) && b.status !== "aflyst" && b.status !== "afvist"
+  );
+
+  let gridStartMin = DAY_GRID_START_MIN;
+  let gridEndMin = DAY_GRID_END_MIN;
+  for (const b of weekBookings) {
+    const s = minutesOfDay(parseNaiveDateTime(b.startsAt));
+    const startDay = b.startsAt.slice(0, 10);
+    const endDay = b.endsAt.slice(0, 10);
+    const e = endDay === startDay ? minutesOfDay(parseNaiveDateTime(b.endsAt)) : 24 * 60;
+    if (s < gridStartMin) gridStartMin = Math.floor(s / 60) * 60;
+    if (e > gridEndMin) gridEndMin = Math.ceil(e / 60) * 60;
+  }
+
+  const totalMinutes = gridEndMin - gridStartMin;
+  const gridHeight = totalMinutes * DAY_GRID_PX_PER_MIN;
+  const hourMarks = Array.from({ length: totalMinutes / 60 + 1 }, (_, i) => gridStartMin + i * 60);
+
+  function startDrag(e: ReactPointerEvent, booking: BookingDTO, mode: DayDragMode) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const start = parseNaiveDateTime(booking.startsAt);
+    const end = parseNaiveDateTime(booking.endsAt);
+    const initial: WeekDragState = {
+      bookingId: booking.id,
+      mode,
+      startClientY: e.clientY,
+      originDayStr: booking.startsAt.slice(0, 10),
+      originStartMin: minutesOfDay(start),
+      originEndMin: minutesOfDay(end),
+      currentDayStr: booking.startsAt.slice(0, 10),
+      currentStartMin: minutesOfDay(start),
+      currentEndMin: minutesOfDay(end),
+      weekShift: 0,
+    };
+    dragRef.current = initial;
+    setDrag(initial);
+  }
+
+  function computeNext(prev: WeekDragState, clientX: number, clientY: number): WeekDragState {
+    const deltaY = clientY - prev.startClientY;
+    const snappedDeltaMin = Math.round(deltaY / DAY_GRID_PX_PER_MIN / 30) * 30;
+
+    let dayStr = prev.originDayStr;
+    let weekShift = 0;
+    const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+    const col = el?.closest("[data-day-col]") as HTMLElement | null;
+    if (prev.mode === "move" && col?.dataset.dayCol) dayStr = col.dataset.dayCol;
+    const shiftEl = el?.closest("[data-day-shift]") as HTMLElement | null;
+    if (prev.mode === "move" && shiftEl?.dataset.dayShift) weekShift = Number(shiftEl.dataset.dayShift);
+
+    let startMin = prev.originStartMin;
+    let endMin = prev.originEndMin;
+    if (weekShift !== 0) {
+      // Som i Dagsplan: hen over uge-pilene skal klokkeslæt/dag-i-ugen ikke
+      // ændres af den lodrette afstand dertil - kun selve ugen flyttes,
+      // beregnet ud fra origin + weekShift ved selve slippet.
+      dayStr = prev.originDayStr;
+    } else if (prev.mode === "move") {
+      const duration = prev.originEndMin - prev.originStartMin;
+      startMin = clampMinutes(prev.originStartMin + snappedDeltaMin, gridStartMin, gridEndMin - duration);
+      endMin = startMin + duration;
+    } else if (prev.mode === "resize-bottom") {
+      endMin = clampMinutes(prev.originEndMin + snappedDeltaMin, prev.originStartMin + 30, gridEndMin);
+    } else if (prev.mode === "resize-top") {
+      startMin = clampMinutes(prev.originStartMin + snappedDeltaMin, gridStartMin, prev.originEndMin - 30);
+    }
+
+    return { ...prev, currentDayStr: dayStr, currentStartMin: startMin, currentEndMin: endMin, weekShift };
+  }
+
+  useEffect(() => {
+    if (!drag) return undefined;
+
+    function handleMove(clientX: number, clientY: number) {
+      const prev = dragRef.current;
+      if (!prev) return;
+      const next = computeNext(prev, clientX, clientY);
+      dragRef.current = next;
+      setDrag(next);
+    }
+
+    function handleUp(clientX: number, clientY: number) {
+      const prev = dragRef.current;
+      dragRef.current = null;
+      setDrag(null);
+      if (!prev) return;
+      const final = computeNext(prev, clientX, clientY);
+      const booking = bookingsRef.current.find((b) => b.id === final.bookingId);
+      if (!booking) return;
+      const nothingChanged =
+        final.currentDayStr === final.originDayStr &&
+        final.currentStartMin === final.originStartMin &&
+        final.currentEndMin === final.originEndMin &&
+        final.weekShift === 0;
+      if (nothingChanged) {
+        onSelect(booking);
+        return;
+      }
+      const targetDayStr =
+        final.weekShift !== 0
+          ? localISODate(addDays(new Date(`${final.originDayStr}T00:00:00`), final.weekShift))
+          : final.currentDayStr;
+      onCommit(booking, {
+        facilityId: booking.facilityId,
+        startsAt: minutesToNaiveDateTimeString(targetDayStr, final.currentStartMin),
+        endsAt: minutesToNaiveDateTimeString(targetDayStr, final.currentEndMin),
+      });
+    }
+
+    function onPointerMove(e: PointerEvent) {
+      handleMove(e.clientX, e.clientY);
+    }
+    function onPointerUp(e: PointerEvent) {
+      handleUp(e.clientX, e.clientY);
+    }
+    function onMouseMove(e: MouseEvent) {
+      handleMove(e.clientX, e.clientY);
+    }
+    function onMouseUp(e: MouseEvent) {
+      handleUp(e.clientX, e.clientY);
+    }
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag !== null]);
+
+  if (facilities.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center text-slate-400">
+        Vælg mindst én facilitet i venstre side for at se ugeplanen.
+      </div>
+    );
+  }
+
+  const weekEnd = addDays(weekStart, 6);
+  const monthNameDa = (d: Date) => d.toLocaleDateString("da-DK", { month: "long" });
+  const rangeLabel =
+    weekStart.getMonth() === weekEnd.getMonth()
+      ? `${weekStart.getDate()}.–${weekEnd.getDate()}. ${monthNameDa(weekEnd)} ${weekEnd.getFullYear()}`
+      : `${weekStart.getDate()}. ${monthNameDa(weekStart)} – ${weekEnd.getDate()}. ${monthNameDa(weekEnd)} ${weekEnd.getFullYear()}`;
+
+  return (
+    <div className="select-none">
+      <div className="mb-3 text-sm font-semibold text-slate-700">
+        Uge {isoWeekNumber(weekStart)} &middot; {rangeLabel}
+      </div>
+      <div className="overflow-x-auto pb-2">
+        <div className="flex min-w-full items-start">
+          {/* Tidsakse-gutter */}
+          <div className="w-12 shrink-0 relative" style={{ height: gridHeight + 56 }}>
+            {hourMarks.map((m) => (
+              <div
+                key={m}
+                className="absolute right-1 -translate-y-1/2 text-[11px] text-slate-400"
+                style={{ top: 56 + (m - gridStartMin) * DAY_GRID_PX_PER_MIN }}
+              >
+                {String(Math.floor(m / 60) % 24).padStart(2, "0")}.00
+              </div>
+            ))}
+          </div>
+          {days.map((d, i) => {
+            const dayStr = dayStrs[i];
+            const isToday = dayStr === localISODate();
+            const dayBookingsAll = weekBookings.filter((b) => {
+              const isDragged = drag?.bookingId === b.id;
+              const displayDayStr = isDragged ? (drag as WeekDragState).currentDayStr : b.startsAt.slice(0, 10);
+              return displayDayStr === dayStr;
+            });
+            const nonDragged = dayBookingsAll.filter((b) => drag?.bookingId !== b.id);
+            const layout = layoutDayBookings(nonDragged);
+            const draggedHere = drag && dayBookingsAll.some((b) => b.id === drag.bookingId) ? drag : null;
+            return (
+              <div key={dayStr} className="flex-1 min-w-[150px] px-1">
+                <div
+                  className={`h-8 flex items-center justify-between gap-1.5 rounded-t-lg text-xs font-semibold px-2 truncate ${
+                    isToday ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-800"
+                  }`}
+                >
+                  <span>
+                    {WEEKDAY_SHORT[i]} {d.getDate()}/{d.getMonth() + 1}
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAddNote(dayStr);
+                    }}
+                    title="Tilføj dagsnote"
+                    className="text-slate-400 hover:text-amber-600 leading-none px-1"
+                  >
+                    +note
+                  </button>
+                </div>
+                <DayNoteBadges notes={notesForDay(dayStr)} onEditNote={onEditNote} />
+                <div
+                  data-day-col={dayStr}
+                  onDoubleClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const offsetMin = gridStartMin + (e.clientY - rect.top) / DAY_GRID_PX_PER_MIN;
+                    const snapped = clampMinutes(Math.round(offsetMin / 30) * 30, gridStartMin, gridEndMin - 30);
+                    const hh = String(Math.floor(snapped / 60) % 24).padStart(2, "0");
+                    const mm = String(snapped % 60).padStart(2, "0");
+                    onDayDoubleClick(dayStr, undefined, `${hh}:${mm}`);
+                  }}
+                  title="Dobbeltklik for at oprette en booking på dette tidspunkt"
+                  className="relative rounded-b-lg border border-slate-200 bg-white cursor-pointer"
+                  style={{ height: gridHeight }}
+                >
+                  {hourMarks.map((m) => (
+                    <div
+                      key={m}
+                      className="absolute left-0 right-0 border-t border-slate-100 pointer-events-none"
+                      style={{ top: (m - gridStartMin) * DAY_GRID_PX_PER_MIN }}
+                    />
+                  ))}
+                  {nonDragged.map((b) => {
+                    const startMin = minutesOfDay(parseNaiveDateTime(b.startsAt));
+                    const endDay = b.endsAt.slice(0, 10);
+                    const endMin = endDay === dayStr ? minutesOfDay(parseNaiveDateTime(b.endsAt)) : 24 * 60;
+                    const top = (startMin - gridStartMin) * DAY_GRID_PX_PER_MIN;
+                    const height = Math.max(20, (endMin - startMin) * DAY_GRID_PX_PER_MIN);
+                    const laneInfo = layout.get(b.id) ?? { lane: 0, laneCount: 1 };
+                    const widthPct = 100 / laneInfo.laneCount;
+                    const leftPct = laneInfo.lane * widthPct;
+                    return (
+                      <div
+                        key={b.id}
+                        onPointerDown={(e) => startDrag(e, b, "move")}
+                        onContextMenu={(e) => onContextMenu(e, b)}
+                        title={bookingTooltip(b, facilityName(b.facilityId), organizationName(b.organizationId))}
+                        style={{
+                          position: "absolute",
+                          top,
+                          height,
+                          left: `calc(${leftPct}% + 2px)`,
+                          width: `calc(${widthPct}% - 4px)`,
+                          touchAction: "none",
+                          zIndex: 10,
+                          ...facilityCardStyle(facilityColor(b.facilityId), b.status),
+                        }}
+                        className={`rounded-lg border px-1.5 py-1 text-[10px] overflow-hidden cursor-grab active:cursor-grabbing shadow-sm ${
+                          BOOKING_STATUS_CLASSES[b.status] ?? "bg-slate-100 border-slate-300"
+                        } ${b.seasonGroupId ? SEASON_ACCENT_CLASS : ""}`}
+                      >
+                        <div
+                          onPointerDown={(e) => startDrag(e, b, "resize-top")}
+                          className="absolute top-0 left-0 right-0 h-2 cursor-ns-resize"
+                          style={{ touchAction: "none" }}
+                        />
+                        <div className="font-medium truncate leading-tight">
+                          {b.seasonGroupId && <span className="mr-0.5">↻</span>}
+                          {b.title}
+                        </div>
+                        <div className="opacity-75 leading-tight truncate">{facilityName(b.facilityId)}</div>
+                        <div className="opacity-75 leading-tight">
+                          {String(Math.floor(startMin / 60) % 24).padStart(2, "0")}.{String(startMin % 60).padStart(2, "0")}-
+                          {String(Math.floor(endMin / 60) % 24).padStart(2, "0")}.{String(endMin % 60).padStart(2, "0")}
+                        </div>
+                        <div
+                          onPointerDown={(e) => startDrag(e, b, "resize-bottom")}
+                          className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize"
+                          style={{ touchAction: "none" }}
+                        />
+                      </div>
+                    );
+                  })}
+                  {draggedHere &&
+                    (() => {
+                      const b = bookingsRef.current.find((x) => x.id === draggedHere.bookingId);
+                      if (!b) return null;
+                      const startMin = draggedHere.currentStartMin;
+                      const endMin = draggedHere.currentEndMin;
+                      const top = (startMin - gridStartMin) * DAY_GRID_PX_PER_MIN;
+                      const height = Math.max(20, (endMin - startMin) * DAY_GRID_PX_PER_MIN);
+                      return (
+                        <div
+                          key={b.id + "-dragging"}
+                          onContextMenu={(e) => onContextMenu(e, b)}
+                          style={{
+                            position: "absolute",
+                            top,
+                            height,
+                            left: 2,
+                            right: 2,
+                            touchAction: "none",
+                            zIndex: 30,
+                            ...facilityCardStyle(facilityColor(b.facilityId), b.status),
+                          }}
+                          className={`rounded-lg border px-1.5 py-1 text-[10px] overflow-hidden shadow-sm opacity-90 ring-2 ring-blue-400 ${
+                            BOOKING_STATUS_CLASSES[b.status] ?? "bg-slate-100 border-slate-300"
+                          } ${b.seasonGroupId ? SEASON_ACCENT_CLASS : ""}`}
+                        >
+                          <div className="font-medium truncate leading-tight">
+                            {b.seasonGroupId && <span className="mr-0.5">↻</span>}
+                            {b.title}
+                          </div>
+                          <div className="opacity-75 leading-tight truncate">{facilityName(b.facilityId)}</div>
+                          <div className="opacity-75 leading-tight">
+                            {String(Math.floor(startMin / 60) % 24).padStart(2, "0")}.{String(startMin % 60).padStart(2, "0")}-
+                            {String(Math.floor(endMin / 60) % 24).padStart(2, "0")}.{String(endMin % 60).padStart(2, "0")}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="text-xs text-slate-400 mt-2">
+        Træk et kort for at flytte det til et andet tidspunkt eller en anden dag - eller hen over ←/→-knapperne for
+        at flytte det en uge frem eller tilbage. Træk i kortets top- eller bundkant for at forlænge/afkorte det.
       </div>
     </div>
   );
