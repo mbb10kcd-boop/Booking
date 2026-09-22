@@ -1305,7 +1305,12 @@ function DayGridView({
 
     let startMin = prev.originStartMin;
     let endMin = prev.originEndMin;
-    if (prev.mode === "move") {
+    if (dayShift !== 0) {
+      // Når kortet trækkes hen over forrige/næste-dag-pilen, skal klokkeslættet
+      // (og faciliteten) IKKE ændres - kun dagen flyttes. Pilene sidder langt
+      // over selve gitteret, så den lodrette afstand dertil er ikke retningen
+      // brugeren har til hensigt at ændre tidspunktet med.
+    } else if (prev.mode === "move") {
       const duration = prev.originEndMin - prev.originStartMin;
       startMin = clampMinutes(prev.originStartMin + snappedDeltaMin, gridStartMin, gridEndMin - duration);
       endMin = startMin + duration;
