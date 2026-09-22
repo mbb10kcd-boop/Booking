@@ -378,6 +378,46 @@ export function BookingFormModal({
     return createSingleSlot(slot, force);
   }
 
+  /**
+   * Aflyser de(n) konflikterende booking(er) (samme aflysningsflow som alle
+   * andre steder - se PATCH /api/bookings/[id], som automatisk sender en
+   * aflysningsmail), og opretter derefter den nye booking. Alternativet til
+   * "Dobbeltbook" i konflikt-boksen (Martin).
+   */
+  async function cancelConflictsAndCreate(slot: Slot) {
+    if (!slot.conflicts || slot.conflicts.length === 0) return;
+    updateSlot(slot.key, { saving: true });
+    for (const conflict of slot.conflicts) {
+      // eslint-disable-next-line no-await-in-loop
+      await fetch(`/api/bookings/${conflict.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "aflyst" }),
+      });
+    }
+    const result = await createSlot(slot, true);
+    if (result.hasWarnings) setCreatedWithWarnings(true);
+  }
+
+  /** Samme som `cancelConflictsAndCreate`, men for en sæsonbookings konflikter på tværs af flere datoer. */
+  async function cancelSeasonConflictsAndCreate(slot: Slot) {
+    if (!slot.seasonConflicts || slot.seasonConflicts.length === 0) return;
+    updateSlot(slot.key, { saving: true });
+    const uniqueConflictIds = Array.from(
+      new Set(slot.seasonConflicts.flatMap(({ conflicts }) => conflicts.map((c) => c.id)))
+    );
+    for (const conflictId of uniqueConflictIds) {
+      // eslint-disable-next-line no-await-in-loop
+      await fetch(`/api/bookings/${conflictId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "aflyst" }),
+      });
+    }
+    const result = await createSlot(slot, true);
+    if (result.hasWarnings) setCreatedWithWarnings(true);
+  }
+
   async function submitCreate() {
     setError(null);
     const pending = slots.filter((s) => !s.createdId);
@@ -590,22 +630,31 @@ export function BookingFormModal({
                     {slot.error && <div className="text-xs text-red-600">{slot.error}</div>}
                     {slot.conflicts && slot.conflicts.length > 0 && (
                       <div className="rounded-lg border border-red-200 bg-red-50 p-2.5 space-y-1.5">
-                        <div className="font-medium text-red-800 text-xs">Konflikter med eksisterende booking(er):</div>
+                        <div className="font-medium text-red-800 text-xs">Der er en konflikt med eksisterende booking(er):</div>
                         {slot.conflicts.map((c) => (
                           <div key={c.id} className="text-xs text-red-700">
                             {c.title} - {formatDaDate(c.startsAt)} {formatDaTime(c.startsAt)}-{formatDaTime(c.endsAt)}
                           </div>
                         ))}
-                        <button
-                          onClick={async () => {
-                            const result = await createSlot(slot, true);
-                            if (result.hasWarnings) setCreatedWithWarnings(true);
-                          }}
-                          disabled={slot.saving}
-                          className="mt-1 w-full rounded-lg bg-red-600 text-white text-xs font-medium py-1.5 hover:bg-red-700 disabled:opacity-50"
-                        >
-                          {slot.saving ? "Gemmer..." : "Overskriv alligevel og opret"}
-                        </button>
+                        <div className="flex gap-1.5 mt-1">
+                          <button
+                            onClick={async () => {
+                              const result = await createSlot(slot, true);
+                              if (result.hasWarnings) setCreatedWithWarnings(true);
+                            }}
+                            disabled={slot.saving}
+                            className="flex-1 rounded-lg bg-red-600 text-white text-xs font-medium py-1.5 hover:bg-red-700 disabled:opacity-50"
+                          >
+                            {slot.saving ? "Gemmer..." : "Dobbeltbook"}
+                          </button>
+                          <button
+                            onClick={() => cancelConflictsAndCreate(slot)}
+                            disabled={slot.saving}
+                            className="flex-1 rounded-lg bg-slate-700 text-white text-xs font-medium py-1.5 hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            {slot.saving ? "Gemmer..." : "Aflys den oprindelige booking"}
+                          </button>
+                        </div>
                       </div>
                     )}
                     {slot.warnings && slot.warnings.length > 0 && (
@@ -637,16 +686,25 @@ export function BookingFormModal({
                             </div>
                           ))}
                         </div>
-                        <button
-                          onClick={async () => {
-                            const result = await createSlot(slot, true);
-                            if (result.hasWarnings) setCreatedWithWarnings(true);
-                          }}
-                          disabled={slot.saving}
-                          className="mt-1 w-full rounded-lg bg-red-600 text-white text-xs font-medium py-1.5 hover:bg-red-700 disabled:opacity-50"
-                        >
-                          {slot.saving ? "Gemmer..." : "Opret alligevel (også de forekomster der konflikter)"}
-                        </button>
+                        <div className="flex gap-1.5 mt-1">
+                          <button
+                            onClick={async () => {
+                              const result = await createSlot(slot, true);
+                              if (result.hasWarnings) setCreatedWithWarnings(true);
+                            }}
+                            disabled={slot.saving}
+                            className="flex-1 rounded-lg bg-red-600 text-white text-xs font-medium py-1.5 hover:bg-red-700 disabled:opacity-50"
+                          >
+                            {slot.saving ? "Gemmer..." : "Dobbeltbook"}
+                          </button>
+                          <button
+                            onClick={() => cancelSeasonConflictsAndCreate(slot)}
+                            disabled={slot.saving}
+                            className="flex-1 rounded-lg bg-slate-700 text-white text-xs font-medium py-1.5 hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            {slot.saving ? "Gemmer..." : "Aflys de oprindelige bookinger"}
+                          </button>
+                        </div>
                       </div>
                     )}
                     {slot.seasonWarnings && slot.seasonWarnings.length > 0 && (
