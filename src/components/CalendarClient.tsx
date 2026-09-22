@@ -1277,58 +1277,67 @@ function DayGridView({
       currentEndMin: minutesOfDay(end),
       dayShift: 0,
     };
-    // Skrives synkront (se kommentar i `onMove`), så et hurtigt træk der
-    // sender pointerdown/-move/-up i samme tick ikke risikerer at `onUp`
-    // læser en tom `dragRef` fra før Reacts effekt har nået at køre.
+    // Skrives synkront (se kommentar i `computeNext`), så et hurtigt træk der
+    // sender ned/op-events i samme tick ikke risikerer at `onUp` læser en tom
+    // `dragRef` fra før Reacts effekt har nået at køre.
     dragRef.current = initial;
     setDrag(initial);
+  }
+
+  // Udregner den nye tilstand ud fra en klientkoordinat. Bruges BÅDE løbende
+  // under trækket (onMove, til visuel feedback) OG én sidste gang i selve
+  // "slip"-eventet (onUp) med SLIPPETS EGNE koordinater - nogle
+  // automatiserings-/input-kilder sender kun et "ned" og et "op"-event uden
+  // nogen mellemliggende bevægelses-events, og hvis `onUp` kun genbruger den
+  // sidst kendte `onMove`-tilstand, vil trækket i så fald fejlagtigt blive
+  // opfattet som "ingen bevægelse" og tolket som et almindeligt klik.
+  function computeNext(prev: DayDragState, clientX: number, clientY: number): DayDragState {
+    const deltaY = clientY - prev.startClientY;
+    const snappedDeltaMin = Math.round(deltaY / DAY_GRID_PX_PER_MIN / 30) * 30;
+
+    let facilityId = prev.originFacilityId;
+    let dayShift = 0;
+    const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+    const col = el?.closest("[data-facility-col]") as HTMLElement | null;
+    if (prev.mode === "move" && col?.dataset.facilityCol) facilityId = col.dataset.facilityCol;
+    const shiftEl = el?.closest("[data-day-shift]") as HTMLElement | null;
+    if (prev.mode === "move" && shiftEl?.dataset.dayShift) dayShift = Number(shiftEl.dataset.dayShift);
+
+    let startMin = prev.originStartMin;
+    let endMin = prev.originEndMin;
+    if (prev.mode === "move") {
+      const duration = prev.originEndMin - prev.originStartMin;
+      startMin = clampMinutes(prev.originStartMin + snappedDeltaMin, gridStartMin, gridEndMin - duration);
+      endMin = startMin + duration;
+    } else if (prev.mode === "resize-bottom") {
+      endMin = clampMinutes(prev.originEndMin + snappedDeltaMin, prev.originStartMin + 30, gridEndMin);
+    } else if (prev.mode === "resize-top") {
+      startMin = clampMinutes(prev.originStartMin + snappedDeltaMin, gridStartMin, prev.originEndMin - 30);
+    }
+
+    return { ...prev, currentFacilityId: facilityId, currentStartMin: startMin, currentEndMin: endMin, dayShift };
   }
 
   useEffect(() => {
     if (!drag) return undefined;
 
-    function onMove(e: PointerEvent) {
-      // Læser og skriver `dragRef.current` synkront (i stedet for kun at gå
-      // via `setDrag`s functional-updater-form) - ellers kan et hurtigt
-      // træk (fx automatiseret test-værktøj, der sender pointermove og
-      // pointerup i samme tick) nå at kalde `onUp`, FØR Reacts effekt har nået
-      // at opdatere `dragRef` fra den seneste render, hvorved slippet fejlagtigt
-      // tror der ikke skete nogen bevægelse.
+    function handleMove(clientX: number, clientY: number) {
       const prev = dragRef.current;
       if (!prev) return;
-      const deltaY = e.clientY - prev.startClientY;
-      const snappedDeltaMin = Math.round(deltaY / DAY_GRID_PX_PER_MIN / 30) * 30;
-
-      let facilityId = prev.originFacilityId;
-      let dayShift = 0;
-      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
-      const col = el?.closest("[data-facility-col]") as HTMLElement | null;
-      if (prev.mode === "move" && col?.dataset.facilityCol) facilityId = col.dataset.facilityCol;
-      const shiftEl = el?.closest("[data-day-shift]") as HTMLElement | null;
-      if (prev.mode === "move" && shiftEl?.dataset.dayShift) dayShift = Number(shiftEl.dataset.dayShift);
-
-      let startMin = prev.originStartMin;
-      let endMin = prev.originEndMin;
-      if (prev.mode === "move") {
-        const duration = prev.originEndMin - prev.originStartMin;
-        startMin = clampMinutes(prev.originStartMin + snappedDeltaMin, gridStartMin, gridEndMin - duration);
-        endMin = startMin + duration;
-      } else if (prev.mode === "resize-bottom") {
-        endMin = clampMinutes(prev.originEndMin + snappedDeltaMin, prev.originStartMin + 30, gridEndMin);
-      } else if (prev.mode === "resize-top") {
-        startMin = clampMinutes(prev.originStartMin + snappedDeltaMin, gridStartMin, prev.originEndMin - 30);
-      }
-
-      const next: DayDragState = { ...prev, currentFacilityId: facilityId, currentStartMin: startMin, currentEndMin: endMin, dayShift };
+      const next = computeNext(prev, clientX, clientY);
       dragRef.current = next;
       setDrag(next);
     }
 
-    function onUp() {
-      const final = dragRef.current;
+    function handleUp(clientX: number, clientY: number) {
+      const prev = dragRef.current;
       dragRef.current = null;
       setDrag(null);
-      if (!final) return;
+      if (!prev) return;
+      // Genberegn ud fra SLIPPETS egne koordinater (se kommentar ved
+      // `computeNext`) i stedet for kun at stole på `prev`, som kan være
+      // uændret hvis der ingen mellemliggende bevægelses-events kom.
+      const final = computeNext(prev, clientX, clientY);
       const booking = bookingsRef.current.find((b) => b.id === final.bookingId);
       if (!booking) return;
       const nothingChanged =
@@ -1348,11 +1357,34 @@ function DayGridView({
       });
     }
 
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+    // Lytter til BÅDE pointer- og mouse-events: almindelige fysiske
+    // museklik/-træk udløser normalt begge (browseren sender et
+    // "compat"-museevent efter pointer-eventet), men nogle synteste
+    // input-kilder (automatiserede test-værktøjer m.m.) springer det ene sæt
+    // helt over. `dragRef.current` bliver nullet i `handleUp`, så et
+    // eventuelt duplikeret op-kald bagefter er en harmløs no-op.
+    function onPointerMove(e: PointerEvent) {
+      handleMove(e.clientX, e.clientY);
+    }
+    function onPointerUp(e: PointerEvent) {
+      handleUp(e.clientX, e.clientY);
+    }
+    function onMouseMove(e: MouseEvent) {
+      handleMove(e.clientX, e.clientY);
+    }
+    function onMouseUp(e: MouseEvent) {
+      handleUp(e.clientX, e.clientY);
+    }
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
     return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drag !== null]);
