@@ -159,6 +159,26 @@ export function BookingFormModal({
     onSaved();
   }
 
+  /**
+   * Aflyser de(n) konflikterende booking(er) (samme aflysningsflow som alle
+   * andre steder - se PATCH /api/bookings/[id], som automatisk sender en
+   * aflysningsmail), og gemmer derefter selve redigeringen. Alternativet til
+   * "Dobbeltbook" i konflikt-boksen ved redigering af en booking (Martin).
+   */
+  async function cancelEditConflictsAndSave() {
+    if (!editConflicts || editConflicts.length === 0) return;
+    setEditSaving(true);
+    for (const conflict of editConflicts) {
+      // eslint-disable-next-line no-await-in-loop
+      await fetch(`/api/bookings/${conflict.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "aflyst" }),
+      });
+    }
+    await submitEdit(true);
+  }
+
   // ---------------------------------------------------------------------
   // Oprettelsestilstand: én eller flere faciliteter/tidsrum på samme
   // booking (fx en hal OG et mødelokale samtidig), så man ikke skal
@@ -473,18 +493,28 @@ export function BookingFormModal({
             <>
               {editConflicts && editConflicts.length > 0 && (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-4 space-y-2">
-                  <div className="font-medium text-red-800 text-sm">Tiden konflikter med eksisterende booking(er):</div>
+                  <div className="font-medium text-red-800 text-sm">Der er en konflikt med eksisterende booking(er):</div>
                   {editConflicts.map((c) => (
                     <div key={c.id} className="text-sm text-red-700">
                       {c.title} - {formatDaDate(c.startsAt)} {formatDaTime(c.startsAt)}-{formatDaTime(c.endsAt)}
                     </div>
                   ))}
-                  <button
-                    onClick={() => submitEdit(true)}
-                    className="mt-2 w-full rounded-lg bg-red-600 text-white text-sm font-medium py-2 hover:bg-red-700"
-                  >
-                    Overskriv alligevel og gem
-                  </button>
+                  <div className="flex gap-1.5 mt-1">
+                    <button
+                      onClick={() => submitEdit(true)}
+                      disabled={editSaving}
+                      className="flex-1 rounded-lg bg-red-600 text-white text-xs font-medium py-1.5 hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {editSaving ? "Gemmer..." : "Dobbeltbook"}
+                    </button>
+                    <button
+                      onClick={cancelEditConflictsAndSave}
+                      disabled={editSaving}
+                      className="flex-1 rounded-lg bg-slate-700 text-white text-xs font-medium py-1.5 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {editSaving ? "Gemmer..." : "Aflys den oprindelige booking"}
+                    </button>
+                  </div>
                 </div>
               )}
 
