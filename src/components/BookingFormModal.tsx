@@ -110,6 +110,78 @@ export function BookingFormModal({
    */
   const [editWarnings, setEditWarnings] = useState<BookingDTO[] | null>(null);
 
+  // Sæson-flytning ved redigering: når man ændrer facilitet/tidspunkt på en
+  // booking der er del af en sæson, spørges der først om kun denne ene
+  // forekomst eller hele resten af sæsonen skal flyttes (Martin) - se
+  // handleSaveEditClick/submitSeasonMove. Tidligere var det slet ikke muligt
+  // at flytte en hel eksisterende sæson på én gang fra redigeringsformularen.
+  const [seasonEditChoiceOpen, setSeasonEditChoiceOpen] = useState(false);
+  const [seasonMoveSaving, setSeasonMoveSaving] = useState(false);
+  const [seasonMoveConflictsByDate, setSeasonMoveConflictsByDate] = useState<Record<string, BookingDTO[]> | null>(
+    null
+  );
+
+  function editHasTimeOrFacilityChange(): boolean {
+    if (!booking) return false;
+    const startsAt = editStart.length === 16 ? `${editStart}:00` : editStart;
+    const endsAt = editEnd.length === 16 ? `${editEnd}:00` : editEnd;
+    return editFacilityId !== booking.facilityId || startsAt !== booking.startsAt || endsAt !== booking.endsAt;
+  }
+
+  /** Klik på "Gem ændringer": spørger først om sæson-omfang, hvis relevant. */
+  function handleSaveEditClick() {
+    if (booking?.seasonGroupId && editHasTimeOrFacilityChange()) {
+      setSeasonEditChoiceOpen(true);
+      return;
+    }
+    submitEdit(false);
+  }
+
+  /** Flytter HELE resten af sæsonen via /api/bookings/season/[id]/move - se den route for detaljer. */
+  async function submitSeasonMove(force: boolean) {
+    if (!booking?.seasonGroupId || !editFacilityId || !editStart || !editEnd) {
+      setError("Udfyld facilitet, starttid og sluttid.");
+      return;
+    }
+    setSeasonMoveSaving(true);
+    setError(null);
+    const startsAt = editStart.length === 16 ? `${editStart}:00` : editStart;
+    const endsAt = editEnd.length === 16 ? `${editEnd}:00` : editEnd;
+    const res = await fetch(`/api/bookings/season/${booking.seasonGroupId}/move`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ anchorBookingId: booking.id, facilityId: editFacilityId, startsAt, endsAt, force }),
+    });
+    setSeasonMoveSaving(false);
+    if (res.status === 409) {
+      const data = await res.json();
+      setSeasonMoveConflictsByDate(data.conflictsByDate);
+      return;
+    }
+    if (!res.ok) {
+      setError("Der opstod en fejl. Prøv igen.");
+      return;
+    }
+    setSeasonMoveConflictsByDate(null);
+    onSaved();
+  }
+
+  /** Alternativet til "Dobbeltbook" ved en sæson-flytnings-konflikt - aflyser alle konflikterende bookinger på tværs af datoer, og gemmer derefter. */
+  async function cancelSeasonMoveConflictsAndSave() {
+    if (!seasonMoveConflictsByDate) return;
+    setSeasonMoveSaving(true);
+    const allConflicts = Object.values(seasonMoveConflictsByDate).flat();
+    for (const conflict of allConflicts) {
+      // eslint-disable-next-line no-await-in-loop
+      await fetch(`/api/bookings/${conflict.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "aflyst" }),
+      });
+    }
+    await submitSeasonMove(true);
+  }
+
   async function submitEdit(force: boolean) {
     if (!editFacilityId || !editStart || !editEnd) {
       setError("Udfyld facilitet, starttid og sluttid.");
@@ -212,6 +284,10 @@ export function BookingFormModal({
   // en eksisterende sæson på én gang er ikke understøttet endnu.
   const [repeatWeekly, setRepeatWeekly] = useState(false);
   const [repeatUntil, setRepeatUntil] = useState("");
+  // Sat til true så snart brugeren selv har rettet i "Gentages til og med" -
+  // fra det tidspunkt overskriver vi ikke længere feltet automatisk, selvom
+  // startdatoen ovenfor ændres igen.
+  const [repeatUntilTouched, setRepeatUntilTouched] = useState(false);
 
   // Sat til true når mindst én facilitet blev oprettet med en (ikke-blokerende)
   // bemærkning fra en løst koblet facilitet - da forhindrer vi den ellers
@@ -259,6 +335,16 @@ export function BookingFormModal({
    *   frit redigerbar bagefter (fx hvis hallen skal bruges længere end
    *   mødelokalet).
    */
+  // Standard-slutdato for en sæsonbooking: den 1. maj året efter sæsonens
+  // startdato (fx en sæson der starter i august 2026 foreslås afsluttet
+  // 1/5-2027) - de fleste sæsoner (skoleår/idrætssæson) slutter omkring der,
+  // så det er et fornuftigt udgangspunkt som brugeren altid kan ændre.
+  function defaultRepeatUntil(startValue: string): string {
+    const startYear = startValue ? Number(startValue.slice(0, 4)) : new Date().getFullYear();
+    const year = Number.isFinite(startYear) ? startYear + 1 : new Date().getFullYear() + 1;
+    return `${year}-05-01`;
+  }
+
   function handleSlotStartChange(index: number, value: string) {
     const newEnd = value ? stepDateTimeLocalString(value, 60) : "";
     setSlots((prev) =>
@@ -268,6 +354,12 @@ export function BookingFormModal({
         return s;
       })
     );
+    // Hold "Gentages til og med" opdateret med standardforslaget, indtil
+    // brugeren selv har rettet i feltet - så den følger med, hvis man f.eks.
+    // sætter krydset i "Gentag ugentligt" FØR man har valgt startdato.
+    if (index === 0 && repeatWeekly && !repeatUntilTouched) {
+      setRepeatUntil(defaultRepeatUntil(value));
+    }
   }
 
   async function createSingleSlot(slot: Slot, force: boolean): Promise<{ ok: boolean; hasWarnings: boolean }> {
@@ -491,6 +583,80 @@ export function BookingFormModal({
 
           {isEditing ? (
             <>
+              {seasonEditChoiceOpen && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
+                  <div className="font-medium text-blue-900 text-sm">
+                    Dette er en sæsonbooking. Skal flytningen kun gælde denne ene forekomst, eller hele resten af
+                    sæsonen?
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <button
+                      onClick={() => {
+                        setSeasonEditChoiceOpen(false);
+                        submitSeasonMove(false);
+                      }}
+                      disabled={seasonMoveSaving}
+                      className="w-full rounded-lg bg-blue-600 text-white text-sm font-medium py-2 hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {seasonMoveSaving ? "Gemmer..." : "Flyt hele sæsonen (resten af den)"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSeasonEditChoiceOpen(false);
+                        submitEdit(false);
+                      }}
+                      disabled={editSaving}
+                      className="w-full rounded-lg border border-slate-300 text-slate-700 text-sm font-medium py-2 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Flyt kun denne booking
+                    </button>
+                    <button
+                      onClick={() => setSeasonEditChoiceOpen(false)}
+                      className="w-full text-center text-xs text-slate-400 hover:text-slate-600 py-1"
+                    >
+                      Annullér
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {seasonMoveConflictsByDate && Object.keys(seasonMoveConflictsByDate).length > 0 && (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 space-y-2 max-h-60 overflow-y-auto">
+                  <div className="font-medium text-red-800 text-sm">
+                    {Object.keys(seasonMoveConflictsByDate).length} af forekomsterne konflikter med eksisterende
+                    booking(er):
+                  </div>
+                  {Object.keys(seasonMoveConflictsByDate)
+                    .sort()
+                    .map((date) => (
+                      <div key={date} className="space-y-1">
+                        <div className="text-xs font-medium text-red-700">{formatDaDate(`${date}T00:00:00`)}</div>
+                        {seasonMoveConflictsByDate[date].map((c) => (
+                          <div key={c.id} className="text-sm text-red-700 pl-2">
+                            {c.title} - {formatDaTime(c.startsAt)}-{formatDaTime(c.endsAt)}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  <div className="flex gap-1.5 mt-1">
+                    <button
+                      onClick={() => submitSeasonMove(true)}
+                      disabled={seasonMoveSaving}
+                      className="flex-1 rounded-lg bg-red-600 text-white text-xs font-medium py-1.5 hover:bg-red-700 disabled:opacity-50"
+                    >
+                      {seasonMoveSaving ? "Gemmer..." : "Dobbeltbook"}
+                    </button>
+                    <button
+                      onClick={cancelSeasonMoveConflictsAndSave}
+                      disabled={seasonMoveSaving}
+                      className="flex-1 rounded-lg bg-slate-700 text-white text-xs font-medium py-1.5 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {seasonMoveSaving ? "Gemmer..." : "Aflys de oprindelige bookinger"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {editConflicts && editConflicts.length > 0 && (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-4 space-y-2">
                   <div className="font-medium text-red-800 text-sm">Der er en konflikt med eksisterende booking(er):</div>
@@ -777,7 +943,13 @@ export function BookingFormModal({
                   <input
                     type="checkbox"
                     checked={repeatWeekly}
-                    onChange={(e) => setRepeatWeekly(e.target.checked)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setRepeatWeekly(checked);
+                      if (checked && !repeatUntilTouched && !repeatUntil) {
+                        setRepeatUntil(defaultRepeatUntil(slots[0]?.start ?? ""));
+                      }
+                    }}
                     className="rounded border-slate-300"
                   />
                   Gentag ugentligt (sæsonbooking)
@@ -792,7 +964,10 @@ export function BookingFormModal({
                     <input
                       type="date"
                       value={repeatUntil}
-                      onChange={(e) => setRepeatUntil(e.target.value)}
+                      onChange={(e) => {
+                        setRepeatUntil(e.target.value);
+                        setRepeatUntilTouched(true);
+                      }}
                       className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
                     />
                   </div>
@@ -884,11 +1059,11 @@ export function BookingFormModal({
               </button>
               {isEditing ? (
                 <button
-                  onClick={() => submitEdit(false)}
-                  disabled={editSaving}
+                  onClick={handleSaveEditClick}
+                  disabled={editSaving || seasonMoveSaving}
                   className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {editSaving ? "Gemmer..." : "Gem ændringer"}
+                  {editSaving || seasonMoveSaving ? "Gemmer..." : "Gem ændringer"}
                 </button>
               ) : (
                 <button

@@ -225,6 +225,33 @@ Venlig hilsen
 Grenaa Idrætscenter`;
 }
 
+/**
+ * Besked når en HEL sæson (resten af den, fra og med en given dato) flyttes
+ * til et nyt tidspunkt/ny ugedag og/eller ny facilitet på én gang - sendes
+ * kun ÉN gang for hele sæsonen, i modsætning til `movedMessage` som er pr.
+ * enkelt booking.
+ */
+export function seasonMovedMessage(opts: {
+  facilityName: string;
+  weekday: number;
+  startTime: string;
+  endTime: string;
+  movedFrom: string; // ISO dato - resten af sæsonen fra og med denne dato er flyttet
+  recipientName?: string;
+}): string {
+  return `Hej${opts.recipientName ? ` ${opts.recipientName}` : ""}
+
+Jeres sæsonbooking er blevet flyttet fra og med ${formatDaDate(`${opts.movedFrom}T00:00:00`)} til:
+
+${opts.facilityName}
+Hver ${weekdayName(opts.weekday).toLowerCase()} kl. ${opts.startTime.replace(":", ".")}-${opts.endTime.replace(":", ".")}
+
+Kontakt os endelig, hvis I har spørgsmål.
+
+Venlig hilsen
+Grenaa Idrætscenter`;
+}
+
 export function conflictExplanation(opts: {
   facilityName: string;
   startsAt: string;

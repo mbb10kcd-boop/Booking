@@ -204,6 +204,20 @@ export function CalendarClient({
     pending: { facilityId: string; startsAt: string; endsAt: string };
   } | null>(null);
   const [dragBusy, setDragBusy] = useState(false);
+  // Når man flytter (træk/slip eller "flyt til i morgen/i går") en booking
+  // der er del af en sæson, og der reelt ændres tid/facilitet, spørges der
+  // først om kun denne ene forekomst eller hele resten af sæsonen skal
+  // flyttes (Martin) - se applyBookingChange.
+  const [seasonMoveChoice, setSeasonMoveChoice] = useState<{
+    booking: BookingDTO;
+    pending: { facilityId: string; startsAt: string; endsAt: string };
+  } | null>(null);
+  const [seasonDragConflict, setSeasonDragConflict] = useState<{
+    booking: BookingDTO;
+    pending: { facilityId: string; startsAt: string; endsAt: string };
+    conflictsByDate: Record<string, BookingDTO[]>;
+  } | null>(null);
+  const [seasonMoveBusy, setSeasonMoveBusy] = useState(false);
 
   const rangeStart = useMemo(() => {
     // "facilitet"-visningen (flere faciliteter side om side for ugen, jf.
@@ -361,15 +375,14 @@ export function CalendarClient({
   }
 
   /**
-   * Fælles gem-funktion for både træk/slip i dagsplanen og "Flyt til i
-   * morgen/i går" i hurtigmenuen: PATCH'er kun de(t) felt(er) der ændres
-   * (facilitet og/eller tidspunkt) - PATCH-endpointet opdaterer kun de
+   * Flytter kun ÉN enkelt booking/forekomst: PATCH'er kun de(t) felt(er) der
+   * ændres (facilitet og/eller tidspunkt) - PATCH-endpointet opdaterer kun de
    * medsendte felter og sender selv en flytningsmail (samme som ved
    * almindelig redigering). Ved konflikt (409) vises samme to-valgsboks som
    * alle andre steder i systemet (Martin), i stedet for enten at blokere
    * stille eller dobbeltbooke uden varsel.
    */
-  async function applyBookingChange(
+  async function applySingleBookingChange(
     booking: BookingDTO,
     pending: { facilityId: string; startsAt: string; endsAt: string },
     force: boolean
@@ -390,9 +403,74 @@ export function CalendarClient({
     loadBookings();
   }
 
+  /**
+   * Flytter HELE resten af en sæson via /api/bookings/season/[id]/move - se
+   * den route for hvilke forekomster der reelt flyttes. Ved konflikt (409)
+   * vises en sæson-udgave af to-valgsboksen ovenfor (grupperet pr. dato, da
+   * flere forekomster kan konflikte samtidig).
+   */
+  async function applySeasonMoveChange(
+    booking: BookingDTO,
+    pending: { facilityId: string; startsAt: string; endsAt: string },
+    force: boolean
+  ) {
+    if (!booking.seasonGroupId) return;
+    setSeasonMoveBusy(true);
+    const res = await fetch(`/api/bookings/season/${booking.seasonGroupId}/move`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ anchorBookingId: booking.id, ...pending, force }),
+    });
+    setSeasonMoveBusy(false);
+    if (res.status === 409) {
+      const data = await res.json();
+      setSeasonDragConflict({ booking, pending, conflictsByDate: data.conflictsByDate });
+      return;
+    }
+    setSeasonDragConflict(null);
+    loadBookings();
+  }
+
+  /**
+   * Indgangspunkt for ALLE flytninger (træk/slip i dagsplan/ugeplan, samt
+   * "flyt til i morgen/i går" i hurtigmenuen). Hvis bookingen er del af en
+   * sæson, og der reelt ændres tid og/eller facilitet, spørges der først om
+   * hele resten af sæsonen eller kun denne ene forekomst skal flyttes
+   * (Martin), i stedet for stiltiende kun at flytte den ene dag.
+   */
+  async function applyBookingChange(
+    booking: BookingDTO,
+    pending: { facilityId: string; startsAt: string; endsAt: string },
+    force: boolean
+  ) {
+    const timeOrFacilityChanged =
+      pending.facilityId !== booking.facilityId ||
+      pending.startsAt !== booking.startsAt ||
+      pending.endsAt !== booking.endsAt;
+    if (booking.seasonGroupId && timeOrFacilityChanged && !force) {
+      setSeasonMoveChoice({ booking, pending });
+      return;
+    }
+    await applySingleBookingChange(booking, pending, force);
+  }
+
+  function chooseSingleBookingMove() {
+    if (!seasonMoveChoice) return;
+    const { booking, pending } = seasonMoveChoice;
+    setSeasonMoveChoice(null);
+    applySingleBookingChange(booking, pending, false);
+  }
+
+  function chooseSeasonMove() {
+    if (!seasonMoveChoice) return;
+    const { booking, pending } = seasonMoveChoice;
+    setSeasonMoveChoice(null);
+    applySeasonMoveChange(booking, pending, false);
+  }
+
   async function resolveDragDoubleBook() {
     if (!dragConflict) return;
-    await applyBookingChange(dragConflict.booking, dragConflict.pending, true);
+    await applySingleBookingChange(dragConflict.booking, dragConflict.pending, true);
   }
 
   async function resolveDragCancelOriginal() {
@@ -407,7 +485,28 @@ export function CalendarClient({
         body: JSON.stringify({ status: "aflyst" }),
       });
     }
-    await applyBookingChange(booking, pending, true);
+    await applySingleBookingChange(booking, pending, true);
+  }
+
+  async function resolveSeasonDoubleBook() {
+    if (!seasonDragConflict) return;
+    await applySeasonMoveChange(seasonDragConflict.booking, seasonDragConflict.pending, true);
+  }
+
+  async function resolveSeasonCancelOriginal() {
+    if (!seasonDragConflict) return;
+    const { booking, pending, conflictsByDate } = seasonDragConflict;
+    setSeasonMoveBusy(true);
+    const allConflicts = Object.values(conflictsByDate).flat();
+    for (const c of allConflicts) {
+      // eslint-disable-next-line no-await-in-loop
+      await fetch(`/api/bookings/${c.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "aflyst" }),
+      });
+    }
+    await applySeasonMoveChange(booking, pending, true);
   }
 
   /** "Flyt til i morgen"/"Flyt til i går" i højreklik-hurtigmenuen - flytter både start og slut én dag, uændret klokkeslæt og facilitet. */
@@ -714,6 +813,29 @@ export function CalendarClient({
           onCancelOriginal={resolveDragCancelOriginal}
           onDismiss={() => {
             setDragConflict(null);
+            loadBookings();
+          }}
+        />
+      )}
+
+      {seasonMoveChoice && (
+        <SeasonMoveChoiceBox
+          bookingTitle={seasonMoveChoice.booking.title}
+          onSingleBooking={chooseSingleBookingMove}
+          onWholeSeason={chooseSeasonMove}
+          onCancel={() => setSeasonMoveChoice(null)}
+        />
+      )}
+
+      {seasonDragConflict && (
+        <SeasonDragConflictBox
+          bookingTitle={seasonDragConflict.booking.title}
+          conflictsByDate={seasonDragConflict.conflictsByDate}
+          busy={seasonMoveBusy}
+          onDoubleBook={resolveSeasonDoubleBook}
+          onCancelOriginal={resolveSeasonCancelOriginal}
+          onDismiss={() => {
+            setSeasonDragConflict(null);
             loadBookings();
           }}
         />
@@ -2082,6 +2204,116 @@ function DragConflictBox({
               className="flex-1 rounded-lg bg-slate-700 text-white text-xs font-medium py-1.5 hover:bg-slate-800 disabled:opacity-50"
             >
               {busy ? "Gemmer..." : "Aflys den oprindelige booking"}
+            </button>
+          </div>
+        </div>
+        <button onClick={onDismiss} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 py-1">
+          Fortryd flytningen
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Spørger om en flytning af en sæsonbooking skal gælde kun den ene
+ * forekomst der blev trukket/redigeret, eller hele resten af sæsonen
+ * (Martin bad eksplicit om dette valg i stedet for at vi bare gættede).
+ */
+function SeasonMoveChoiceBox({
+  bookingTitle,
+  onSingleBooking,
+  onWholeSeason,
+  onCancel,
+}: {
+  bookingTitle: string;
+  onSingleBooking: () => void;
+  onWholeSeason: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-5 space-y-3">
+        <div className="font-semibold text-slate-900">Flyt &quot;{bookingTitle}&quot;</div>
+        <div className="text-sm text-slate-600">
+          Dette er en sæsonbooking. Skal flytningen kun gælde denne ene forekomst, eller hele resten af sæsonen?
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <button
+            onClick={onWholeSeason}
+            className="w-full rounded-lg bg-blue-600 text-white text-sm font-medium py-2 hover:bg-blue-700"
+          >
+            Flyt hele sæsonen (resten af den)
+          </button>
+          <button
+            onClick={onSingleBooking}
+            className="w-full rounded-lg border border-slate-300 text-slate-700 text-sm font-medium py-2 hover:bg-slate-50"
+          >
+            Flyt kun denne booking
+          </button>
+        </div>
+        <button onClick={onCancel} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 py-1">
+          Fortryd flytningen
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Samme to-valgsboks som DragConflictBox, men for en flytning af en HEL
+ * sæson - her kan flere forekomster (på forskellige datoer) konflikte
+ * samtidig, så konflikterne vises grupperet pr. dato.
+ */
+function SeasonDragConflictBox({
+  bookingTitle,
+  conflictsByDate,
+  busy,
+  onDoubleBook,
+  onCancelOriginal,
+  onDismiss,
+}: {
+  bookingTitle: string;
+  conflictsByDate: Record<string, BookingDTO[]>;
+  busy: boolean;
+  onDoubleBook: () => void;
+  onCancelOriginal: () => void;
+  onDismiss: () => void;
+}) {
+  const dates = Object.keys(conflictsByDate).sort();
+  const occurrenceCount = dates.length;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-5 space-y-3">
+        <div className="font-semibold text-slate-900">Flyt hele sæsonen &quot;{bookingTitle}&quot;</div>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 space-y-2 max-h-72 overflow-y-auto">
+          <div className="font-medium text-red-800 text-sm">
+            {occurrenceCount} af forekomsterne konflikter med eksisterende booking(er):
+          </div>
+          {dates.map((date) => (
+            <div key={date} className="space-y-1">
+              <div className="text-xs font-medium text-red-700">{formatDaDate(`${date}T00:00:00`)}</div>
+              {conflictsByDate[date].map((c) => (
+                <div key={c.id} className="text-sm text-red-700 pl-2">
+                  {c.title} - {formatDaTime(c.startsAt)}-{formatDaTime(c.endsAt)}
+                </div>
+              ))}
+            </div>
+          ))}
+          <div className="flex gap-1.5 mt-1">
+            <button
+              onClick={onDoubleBook}
+              disabled={busy}
+              className="flex-1 rounded-lg bg-red-600 text-white text-xs font-medium py-1.5 hover:bg-red-700 disabled:opacity-50"
+            >
+              {busy ? "Gemmer..." : "Dobbeltbook"}
+            </button>
+            <button
+              onClick={onCancelOriginal}
+              disabled={busy}
+              className="flex-1 rounded-lg bg-slate-700 text-white text-xs font-medium py-1.5 hover:bg-slate-800 disabled:opacity-50"
+            >
+              {busy ? "Gemmer..." : "Aflys de oprindelige bookinger"}
             </button>
           </div>
         </div>
