@@ -1265,7 +1265,7 @@ function DayGridView({
     e.preventDefault();
     const start = parseNaiveDateTime(booking.startsAt);
     const end = parseNaiveDateTime(booking.endsAt);
-    setDrag({
+    const initial: DayDragState = {
       bookingId: booking.id,
       mode,
       startClientY: e.clientY,
@@ -1276,44 +1276,57 @@ function DayGridView({
       currentStartMin: minutesOfDay(start),
       currentEndMin: minutesOfDay(end),
       dayShift: 0,
-    });
+    };
+    // Skrives synkront (se kommentar i `onMove`), så et hurtigt træk der
+    // sender pointerdown/-move/-up i samme tick ikke risikerer at `onUp`
+    // læser en tom `dragRef` fra før Reacts effekt har nået at køre.
+    dragRef.current = initial;
+    setDrag(initial);
   }
 
   useEffect(() => {
     if (!drag) return undefined;
 
     function onMove(e: PointerEvent) {
-      setDrag((prev) => {
-        if (!prev) return prev;
-        const deltaY = e.clientY - prev.startClientY;
-        const snappedDeltaMin = Math.round(deltaY / DAY_GRID_PX_PER_MIN / 30) * 30;
+      // Læser og skriver `dragRef.current` synkront (i stedet for kun at gå
+      // via `setDrag`s functional-updater-form) - ellers kan et hurtigt
+      // træk (fx automatiseret test-værktøj, der sender pointermove og
+      // pointerup i samme tick) nå at kalde `onUp`, FØR Reacts effekt har nået
+      // at opdatere `dragRef` fra den seneste render, hvorved slippet fejlagtigt
+      // tror der ikke skete nogen bevægelse.
+      const prev = dragRef.current;
+      if (!prev) return;
+      const deltaY = e.clientY - prev.startClientY;
+      const snappedDeltaMin = Math.round(deltaY / DAY_GRID_PX_PER_MIN / 30) * 30;
 
-        let facilityId = prev.originFacilityId;
-        let dayShift = 0;
-        const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
-        const col = el?.closest("[data-facility-col]") as HTMLElement | null;
-        if (prev.mode === "move" && col?.dataset.facilityCol) facilityId = col.dataset.facilityCol;
-        const shiftEl = el?.closest("[data-day-shift]") as HTMLElement | null;
-        if (prev.mode === "move" && shiftEl?.dataset.dayShift) dayShift = Number(shiftEl.dataset.dayShift);
+      let facilityId = prev.originFacilityId;
+      let dayShift = 0;
+      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+      const col = el?.closest("[data-facility-col]") as HTMLElement | null;
+      if (prev.mode === "move" && col?.dataset.facilityCol) facilityId = col.dataset.facilityCol;
+      const shiftEl = el?.closest("[data-day-shift]") as HTMLElement | null;
+      if (prev.mode === "move" && shiftEl?.dataset.dayShift) dayShift = Number(shiftEl.dataset.dayShift);
 
-        let startMin = prev.originStartMin;
-        let endMin = prev.originEndMin;
-        if (prev.mode === "move") {
-          const duration = prev.originEndMin - prev.originStartMin;
-          startMin = clampMinutes(prev.originStartMin + snappedDeltaMin, gridStartMin, gridEndMin - duration);
-          endMin = startMin + duration;
-        } else if (prev.mode === "resize-bottom") {
-          endMin = clampMinutes(prev.originEndMin + snappedDeltaMin, prev.originStartMin + 30, gridEndMin);
-        } else if (prev.mode === "resize-top") {
-          startMin = clampMinutes(prev.originStartMin + snappedDeltaMin, gridStartMin, prev.originEndMin - 30);
-        }
+      let startMin = prev.originStartMin;
+      let endMin = prev.originEndMin;
+      if (prev.mode === "move") {
+        const duration = prev.originEndMin - prev.originStartMin;
+        startMin = clampMinutes(prev.originStartMin + snappedDeltaMin, gridStartMin, gridEndMin - duration);
+        endMin = startMin + duration;
+      } else if (prev.mode === "resize-bottom") {
+        endMin = clampMinutes(prev.originEndMin + snappedDeltaMin, prev.originStartMin + 30, gridEndMin);
+      } else if (prev.mode === "resize-top") {
+        startMin = clampMinutes(prev.originStartMin + snappedDeltaMin, gridStartMin, prev.originEndMin - 30);
+      }
 
-        return { ...prev, currentFacilityId: facilityId, currentStartMin: startMin, currentEndMin: endMin, dayShift };
-      });
+      const next: DayDragState = { ...prev, currentFacilityId: facilityId, currentStartMin: startMin, currentEndMin: endMin, dayShift };
+      dragRef.current = next;
+      setDrag(next);
     }
 
     function onUp() {
       const final = dragRef.current;
+      dragRef.current = null;
       setDrag(null);
       if (!final) return;
       const booking = bookingsRef.current.find((b) => b.id === final.bookingId);
