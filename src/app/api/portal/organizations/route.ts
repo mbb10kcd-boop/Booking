@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
-import { eq } from "drizzle-orm";
+import { eq, and, ne } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
 
 /**
  * Offentlig liste til foreningsportalen: kun GODKENDTE foreninger, og kun de
  * felter der er nødvendige for at vælge sin forening i en dropdown (ikke
- * CVR/adresse/noter mv., som er interne oplysninger).
+ * CVR/adresse/noter mv., som er interne oplysninger). Interne
+ * "organisationer" (fx GIC, personalets egen bruger til kommerciel
+ * udlejning - se schema.ts) er IKKE rigtige foreninger og skal derfor aldrig
+ * kunne vælges her.
  */
 export async function GET() {
   const orgs = await db
     .select({ id: schema.organizations.id, name: schema.organizations.name })
     .from(schema.organizations)
-    .where(eq(schema.organizations.status, "godkendt"))
+    .where(and(eq(schema.organizations.status, "godkendt"), ne(schema.organizations.internal, true)))
     .orderBy(schema.organizations.name);
   return NextResponse.json(orgs);
 }

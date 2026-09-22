@@ -80,6 +80,14 @@ export const organizations = sqliteTable("organizations", {
   status: text("status", { enum: ["godkendt", "afventer_godkendelse", "afvist"] })
     .notNull()
     .default("godkendt"),
+  // Intern markering - IKKE en rigtig forening (fx den faste "GIC"-bruger
+  // personalet selv bruger til kommerciel udlejning af hallen, se seed.ts).
+  // Skjules ALTID i den offentlige foreningsportals liste (se
+  // /api/portal/organizations), og sorteres øverst i personalets eget
+  // forenings-dropdown ved booking (se /api/organizations og
+  // (admin)/kalender/page.tsx) - seed-drevet, ingen admin-UI, samme mønster
+  // som hiddenFromOrgPortal på facilities.
+  internal: integer("internal", { mode: "boolean" }).default(false),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 

@@ -56,6 +56,7 @@ export interface OrganizationDTO {
   contactPhone: string | null;
   notes: string | null;
   status: "godkendt" | "afventer_godkendelse" | "afvist";
+  internal: boolean | null;
 }
 
 export interface RescheduleRequestDTO {

@@ -245,11 +245,11 @@ async function main() {
   const gifGymnastik = {
     id: id("org"),
     name: "GIF Gymnastik",
-    cvr: "12345678",
-    contactName: "Lise Andersen",
-    contactEmail: "lise@gifgymnastik.dk",
-    contactPhone: "23456789",
-    address: "Idrætsvej 1, 8500 Grenaa",
+    // Reelle kontaktoplysninger fra Martins foreningsliste (september 2026) -
+    // CVR/kontaktnavn/adresse var tidligere demo-placeholder-data og er
+    // fjernet, da de ikke stammer fra en rigtig kilde.
+    contactEmail: "grenaagymnastik@gmail.com",
+    contactPhone: "24642306",
   };
   const gifHaandbold = {
     id: id("org"),
@@ -260,10 +260,75 @@ async function main() {
     contactPhone: "30405060",
     address: "Idrætsvej 1, 8500 Grenaa",
   };
-  for (const org of [gifGymnastik, gifHaandbold]) {
+  // "GIC" - IKKE en rigtig forening, men en fast intern bruger til
+  // kommerciel udlejning af hallen (fx cirkus, koncerter, Flying Superkids)
+  // (Martin). Bruges i stedet for at oprette en forening pr. lejer - selve
+  // arrangementets navn skrives i bookingens titel/noter. Vises derfor
+  // ALDRIG i den offentlige foreningsportal, og sorteres øverst i
+  // personalets eget forenings-dropdown ved booking - se `internal` i
+  // schema.ts.
+  const gic = {
+    id: id("org"),
+    name: "GIC",
+    internal: true,
+    notes: "Intern bruger til kommerciel udlejning af hallen (fx cirkus, koncerter) - IKKE en forening. Skriv selve arrangementets/lejerens navn i bookingens titel.",
+  };
+  // Foreninger importeret fra Martins foreningsliste (foreningsliste
+  // 2026.xlsx, september 2026). Kontaktnavn er bevidst udeladt - regnearkets
+  // "Fornavn"/"Efternavn"-kolonner var blot en teknisk opsplitning af
+  // foreningens navn, ikke en rigtig kontaktpersons navn.
+  const importeredeForeninger = [
+    { id: id("org"), name: "10 KCD", contactEmail: "anli@videndjurs.dk", contactPhone: "23446745" },
+    { id: id("org"), name: "Ældresagen Petanque", contactEmail: "vibekeenoksen@hotmail.com", contactPhone: "86320455" },
+    { id: id("org"), name: "Aktiv Fritid", contactEmail: "fritid@norddjurs.dk", contactPhone: "89594073" },
+    { id: id("org"), name: "Allan Schmidt", contactEmail: "as@grenaa-ic.dk", contactPhone: "51434876" },
+    { id: id("org"), name: "Astrup IF", contactEmail: "formand@aastrup-if.dk", contactPhone: "4520338993" },
+    { id: id("org"), name: "Åstrup IF Badminton", contactEmail: "JJ.josefsen@stofanet.dk", contactPhone: "20338993" },
+    { id: id("org"), name: "Bosnisk Idrætsforening", contactEmail: "demirovic@live.dk", contactPhone: null },
+    { id: id("org"), name: "Brazil Viden Djurs", contactEmail: "hp@videndjurs.dk", contactPhone: "23322605" },
+    { id: id("org"), name: "Dagplejerne Norddjurs", contactEmail: "cgs@norddjurs.dk", contactPhone: "51343285" },
+    { id: id("org"), name: "Diyar", contactEmail: "diyar@weaccess.dk", contactPhone: "40501310" },
+    { id: id("org"), name: "Dykkerklubben Plask", contactEmail: "c-box@plask-dyk.dk", contactPhone: "27596960" },
+    { id: id("org"), name: "FC Grenaa", contactEmail: "poheni@stofanet.dk", contactPhone: "86324730" },
+    { id: id("org"), name: "FC Grenaa Aqua", contactEmail: "svenssonanja@yahoo.com", contactPhone: "86324730" },
+    { id: id("org"), name: "FC Grenaa Fodbold", contactEmail: "fcgrenaafodbold@gmail.com", contactPhone: null },
+    { id: id("org"), name: "FC Grenaa Petanque", contactEmail: "kroelle@mail.dk", contactPhone: "86323524" },
+    { id: id("org"), name: "FC Norddjurs", contactEmail: "info@djurshandi.dk", contactPhone: "60457418" },
+    { id: id("org"), name: "FOF Djursland", contactEmail: "f@f-djursland.dk", contactPhone: "21296988" },
+    { id: id("org"), name: "GIF Fodbold", contactEmail: "info@grenaaif.dk", contactPhone: "22679403" },
+    { id: id("org"), name: "GIF Old Boys", contactEmail: "grenaaoldboys@gmail.com", contactPhone: "40842899" },
+    { id: id("org"), name: "Gigtforeningen Grenaa", contactEmail: "rklyngesen@stofanet.dk", contactPhone: "20286199" },
+    { id: id("org"), name: "Gjerrild-Bønnerup IF", contactEmail: "kasserer@gbif.dk", contactPhone: null },
+    { id: id("org"), name: "Grenaa Badmintonklub", contactEmail: "chrann@stofanet.dk", contactPhone: "29875722" },
+    { id: id("org"), name: "Grenaa Bordtennis klub", contactEmail: "hammelev@city.dk", contactPhone: "24455135" },
+    { id: id("org"), name: "Grenaa Bowls", contactEmail: "poheni@outlook.com", contactPhone: "41143941" },
+    { id: id("org"), name: "Grenaa Cykle Club", contactEmail: "formandgcc@outlook.com", contactPhone: null },
+    { id: id("org"), name: "Grenaa Fysioterapi", contactEmail: "info@grenaafysioterapi.dk", contactPhone: "31129818" },
+    { id: id("org"), name: "Grenaa Gladiators", contactEmail: "martindahl@live.dk", contactPhone: "86324730" },
+    { id: id("org"), name: "Grenaa Gymnasium", contactEmail: "dau@grenaa-gym.dk", contactPhone: "87584056" },
+    { id: id("org"), name: "Grenaa Kajakklub", contactEmail: "lisbethfeldbaek@hotmail.com", contactPhone: null },
+    { id: id("org"), name: "Grenaa Klatreklub", contactEmail: "phillipkampmann@gmail.com", contactPhone: "29 24 12 65" },
+    { id: id("org"), name: "Grenaa Livredderskole", contactEmail: "livredderskolen@stofanet.dk", contactPhone: "86326752" },
+    { id: id("org"), name: "Grenaa Motionsløbeklub", contactEmail: "mettefrom77@gmail.com", contactPhone: "28650095" },
+    { id: id("org"), name: "Grenaa Skakklub", contactEmail: "jt@privat.dk", contactPhone: "40866326" },
+    { id: id("org"), name: "Grenaa Svømmeklub", contactEmail: "gs-kontakt@grenaasvoemmeklub.dk", contactPhone: "27643149" },
+    { id: id("org"), name: "Gymnasievejens Børnehave", contactEmail: "mae@norddjurs.dk", contactPhone: null },
+    { id: id("org"), name: "Heltidsundervisningen UngNorddjurs", contactEmail: "ash@ungnorddjurs.dk", contactPhone: "24765743" },
+    { id: id("org"), name: "Kasper", contactEmail: "kasper@aagaarden.nu", contactPhone: "40882290" },
+    { id: id("org"), name: "Kattegatdykkerne Grenaa", contactEmail: "formanden@kattegatdykkerne.dk", contactPhone: "21702540" },
+    { id: id("org"), name: "LOF Djursland", contactEmail: "kontor@lof-midtjylland.dk", contactPhone: "29811337" },
+    { id: id("org"), name: "Norddjurs Håndbold", contactEmail: "kk@xn--norddjurshndbold-mob.dk", contactPhone: "20677921" },
+    { id: id("org"), name: "Nørre Djurs HK", contactEmail: "hallen@nr-djurs.net", contactPhone: "86387575" },
+    { id: id("org"), name: "Parkinson Foreningen", contactEmail: "lonekristensen@fiber.dk", contactPhone: "302839801" },
+    { id: id("org"), name: "Søren Kanne Skolen", contactEmail: "malene_kaempe@hotmail.com", contactPhone: "89591200" },
+    { id: id("org"), name: "SOSU Social og sundhedsskolen", contactEmail: "pvh@sosuranders.dk", contactPhone: "20727598" },
+    { id: id("org"), name: "SUP Ohana", contactEmail: "mette.hedegaard@live.dk", contactPhone: "23711275" },
+    { id: id("org"), name: "Viden Djurs Max Ørum", contactEmail: "mach@videndjurs.dk", contactPhone: "26125292" },
+  ];
+  for (const org of [gifGymnastik, gifHaandbold, gic, ...importeredeForeninger]) {
     await db.insert(schema.organizations).values(org);
   }
-  console.log("Oprettede foreninger.");
+  console.log(`Oprettede ${2 + 1 + importeredeForeninger.length} foreninger/brugere.`);
 
   // -------------------------------------------------------------------
   // Eksisterende bookinger - dagens program (matcher pedel/infoskærm-eksempel)
@@ -392,8 +457,8 @@ Periode: ${String(seasonStart.getDate()).padStart(2, "0")}/${String(seasonStart.
 
 Mvh
 Lise Andersen
-lise@gifgymnastik.dk
-23456789`;
+grenaagymnastik@gmail.com
+24642306`;
 
   // Bruger en facilitet uden eksisterende bookinger i dag (Mødelokale 2), så
   // denne demo-mail pålideligt viser "ledig" uanset hvilken ugedag scriptet

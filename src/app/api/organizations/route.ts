@@ -2,9 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
 import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
+import { desc, asc } from "drizzle-orm";
 
 export async function GET() {
-  const orgs = await db.select().from(schema.organizations).orderBy(schema.organizations.name);
+  // "Interne" organisationer (fx GIC, se schema.ts) sorteres altid øverst,
+  // resten alfabetisk - så personalet ikke skal lede efter GIC i et
+  // dropdown med snart 50 foreninger, når de opretter en booking.
+  const orgs = await db
+    .select()
+    .from(schema.organizations)
+    .orderBy(desc(schema.organizations.internal), asc(schema.organizations.name));
   return NextResponse.json(orgs);
 }
 
