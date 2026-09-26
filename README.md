@@ -39,5 +39,3 @@ Next.js (App Router, TypeScript), Tailwind CSS, Drizzle ORM + SQLite (se
 ARKITEKTUR.md for hvorfor Drizzle blev valgt frem for Prisma i dette miljø).
 
 <!-- test: bekræfter direkte push fra Martins computer virker -->
-
-<!-- deploy-verifikation 2026-09-26T20:06:51Z -->
