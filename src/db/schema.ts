@@ -104,6 +104,11 @@ export const users = sqliteTable("users", {
   }).notNull(),
   organizationId: text("organization_id"),
   phone: text("phone"),
+  // Deaktiverede konti kan ikke logge ind (se /api/auth/login), men bevares
+  // i stedet for at slette dem, så historik (fx hvem der oprettede en
+  // booking) ikke mister sin reference. Sat til false i stedet for at
+  // slette rækken ved "Deaktiver bruger" i /brugere.
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 

@@ -32,6 +32,9 @@ Kør `npm run db:seed` igen når som helst for at nulstille til demodata.
 - `/pedel` - Mobilvenlig pedelvisning ("hvad sker der i dag")
 - `/book` - Offentlig bookingportal (embeddable)
 - `/notifikationer` - Genererede beskeder (simuleret afsendelse)
+- `/login` - Login (email+kodeord) - kræves for alle sider ovenfor undtagen `/book` og `/skaerm/[id]`
+- `/mit-login` - Skift eget navn/email/kodeord
+- `/brugere` - Brugerstyring (kun for administratorer): opret/deaktivér personale, skift rolle, nulstil kodeord
 
 ## Teknologi
 

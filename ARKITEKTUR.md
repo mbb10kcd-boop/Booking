@@ -105,7 +105,7 @@ koblet en rigtig mailudbyder på (se kritiske beslutninger).
 | Offentlig bookingportal | Fuldt implementeret, inkl. simuleret betaling |
 | Infoskærme | Fuldt implementeret (fuldskærm, auto-opdatering hvert 30. sek.) |
 | Dashboard + bookingindbakke som "indbakke" | Fuldt implementeret |
-| Roller/permissions | Datamodel klar (`users.role`), men **ingen login/adgangsstyring i UI endnu** |
+| Roller/permissions | **Login/adgangsstyring implementeret** (email+kodeord, roller admin/medarbejder/pedel, se `/login` og `/brugere`) |
 | Online betaling | Simuleret (statusmodel og flow er fuldt implementeret, men ingen rigtig udbyder) |
 | Adgangskoder | Genereres og logges, men **ikke koblet til et rigtigt låsesystem** |
 | E-mail (afsendelse/modtagelse) | Beskeder genereres og logges, men **sendes ikke rigtigt**; mails kommer ind ved at indsætte tekst i UI, ikke via en rigtig postkasse |
@@ -162,8 +162,9 @@ lette at koble til uden at ændre resten af systemet:
 4. **Reel e-mail-indgang** - skal systemet have sin egen postkasse/
    forward-adresse (fx via en webhook), eller skal I fortsat indsætte
    mailtekst manuelt i indbakken?
-5. **Login/identitet** - simpel egen brugerdatabase (findes allerede som
-   datamodel), eller integration med Microsoft 365, som I allerede bruger?
+5. **Login/identitet** - AFKLARET (26/9-2026): Martin valgte simpelt
+   indbygget login (email+kodeord) frem for Microsoft 365-integration.
+   Implementeret - se afsnit 5 og 8.
 6. **Winkas/GIBBS eksportformat** til migrering af eksisterende foreninger,
    faciliteter og bookinger - jeg kender ikke det præcise eksportformat, og
    har derfor ikke bygget en importfunktion endnu. Send gerne et eksempel på
@@ -202,8 +203,16 @@ lette at koble til uden at ændre resten af systemet:
 
 ## 8. Kendte begrænsninger i denne MVP
 
-- Ingen login/session - alle sider er tilgængelige uden godkendelse. Skal
-  lukkes ned før produktionsbrug.
+- Login/session er nu implementeret (se `middleware.ts`, `src/lib/session.ts`,
+  `src/lib/auth.ts`, `/login`, `/brugere`, `/mit-login`): alle admin-sider
+  (dashboard, kalender, indbakke, foreninger, faciliteter, anmodninger,
+  infoskærme, beskeder, dørkoder, pedelvisning) kræver login. Den offentlige
+  bookingportal (`/book`) og de fysiske infoskærme (`/skaerm/[id]`) forbliver
+  bevidst uden login. Sessionen er en signeret cookie (HMAC via Web Crypto) -
+  `SESSION_SECRET` bør sættes som miljøvariabel på Render (ellers bruges en
+  usikker standardværdi fra kildekoden). Roller (admin/medarbejder/pedel)
+  findes, men kun `/brugere` (brugerstyring) er i dag forbeholdt admin - de
+  øvrige sider skelner endnu ikke mellem rollerne.
 - Ingen automatiseret test-suite (fx Playwright/Vitest) endnu - test er udført
   manuelt mod den kørende applikation, som beskrevet i afsnit 6.
 - Åbningstider pr. facilitet er modelleret i databasen, men bruges endnu ikke

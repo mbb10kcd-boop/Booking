@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 const LINKS = [
@@ -23,8 +23,15 @@ const EXTERNAL_LINKS = [
 
 const COLLAPSE_STORAGE_KEY = "grenaa-admin-nav-collapsed";
 
-export function AdminNav() {
+interface AdminNavUser {
+  name: string;
+  email: string;
+  role: string;
+}
+
+export function AdminNav({ user }: { user: AdminNavUser | null }) {
   const pathname = usePathname();
+  const router = useRouter();
   // Sidepanelet kan slås om til kun at vise ikoner, så der er mere plads til
   // fx facilitetsvisningen i kalenderen med flere kolonner side om side.
   // Tilstanden gemmes lokalt i browseren, så valget huskes næste gang man
@@ -50,6 +57,12 @@ export function AdminNav() {
       }
       return next;
     });
+  }
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
   }
 
   return (
@@ -120,6 +133,46 @@ export function AdminNav() {
             {!collapsed && "Skjul menu"}
           </button>
         </div>
+        <div className={`border-t border-slate-100 py-3 ${collapsed ? "px-2" : "px-3"} space-y-1`}>
+          {!collapsed && user && (
+            <div className="px-3 pb-1">
+              <div className="text-sm font-medium text-slate-800 truncate">{user.name}</div>
+              <div className="text-xs text-slate-400 truncate">{user.email}</div>
+            </div>
+          )}
+          <Link
+            href="/mit-login"
+            title="Mit login"
+            className={`flex items-center gap-3 rounded-lg py-2 text-sm text-slate-500 hover:bg-slate-50 hover:text-slate-800 ${
+              collapsed ? "justify-center px-0" : "px-3"
+            }`}
+          >
+            <span className="text-base w-5 text-center shrink-0">⚙</span>
+            {!collapsed && "Mit login"}
+          </Link>
+          {user?.role === "admin" && (
+            <Link
+              href="/brugere"
+              title="Brugere"
+              className={`flex items-center gap-3 rounded-lg py-2 text-sm text-slate-500 hover:bg-slate-50 hover:text-slate-800 ${
+                collapsed ? "justify-center px-0" : "px-3"
+              }`}
+            >
+              <span className="text-base w-5 text-center shrink-0">👤</span>
+              {!collapsed && "Brugere"}
+            </Link>
+          )}
+          <button
+            onClick={handleLogout}
+            title="Log ud"
+            className={`flex items-center gap-3 rounded-lg py-2 text-sm text-slate-500 hover:bg-red-50 hover:text-red-700 w-full ${
+              collapsed ? "justify-center px-0" : "px-3"
+            }`}
+          >
+            <span className="text-base w-5 text-center shrink-0">⏻</span>
+            {!collapsed && "Log ud"}
+          </button>
+        </div>
       </aside>
 
       {/* Mobile bottom nav */}
@@ -139,6 +192,15 @@ export function AdminNav() {
             </Link>
           );
         })}
+        <Link
+          href="/mit-login"
+          className={`flex flex-col items-center gap-0.5 px-2 py-1 text-[11px] font-medium rounded-lg ${
+            pathname.startsWith("/mit-login") ? "text-blue-700" : "text-slate-500"
+          }`}
+        >
+          <span className="text-lg leading-none">⚙</span>
+          Mit login
+        </Link>
       </nav>
     </>
   );
