@@ -94,3 +94,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   await db.update(users).set(updates).where(eq(users.id, id));
   return NextResponse.json({ ok: true });
 }
+
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { user: adminUser, error } = await requireAdmin();
+  if (error) return error;
+  const { id } = await params;
+
+  if (id === adminUser!.id) {
+    return NextResponse.json({ error: "Du kan ikke slette din egen konto" }, { status: 400 });
+  }
+
+  await db.delete(users).where(eq(users.id, id));
+  return NextResponse.json({ ok: true });
+}

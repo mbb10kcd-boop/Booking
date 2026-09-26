@@ -98,6 +98,20 @@ export default function BrugerePage() {
     load();
   }
 
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  async function deleteUser(id: string) {
+    setGlobalError(null);
+    const res = await fetch(`/api/users/${id}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setGlobalError(data.error || "Kunne ikke slette bruger");
+      return;
+    }
+    setDeleteConfirmId(null);
+    load();
+  }
+
   function startResetPassword(id: string) {
     setResettingId(id);
     setResetPasswordValue("");
@@ -254,8 +268,34 @@ export default function BrugerePage() {
                 >
                   {u.active === false ? "Aktivér" : "Deaktivér"}
                 </button>
+                <button
+                  onClick={() => setDeleteConfirmId(u.id)}
+                  className="text-sm text-slate-400 hover:text-red-700"
+                >
+                  Slet
+                </button>
               </div>
             </div>
+            {deleteConfirmId === u.id && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex flex-wrap items-center gap-3">
+                <p className="text-sm text-red-700">
+                  Slet {u.name} permanent? Dette kan ikke fortrydes (brug i stedet &quot;Deaktivér&quot;, hvis du blot
+                  vil spærre kontoen, men bevare den i historikken).
+                </p>
+                <button
+                  onClick={() => deleteUser(u.id)}
+                  className="bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg px-3 py-1.5"
+                >
+                  Ja, slet permanent
+                </button>
+                <button
+                  onClick={() => setDeleteConfirmId(null)}
+                  className="text-sm text-slate-500 hover:text-slate-800"
+                >
+                  Annullér
+                </button>
+              </div>
+            )}
             {resettingId === u.id && (
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
                 {resetDoneFor && resetDoneFor.name === u.name ? (
