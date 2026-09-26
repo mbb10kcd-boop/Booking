@@ -25,13 +25,13 @@ function getSecret(): string {
   return "usikker-lokal-udviklings-noegle-ikke-til-produktion";
 }
 
-function toBase64Url(bytes: Uint8Array): string {
+function toBase64Url(bytes: Uint8Array<ArrayBuffer>): string {
   let str = "";
   for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
   return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function fromBase64Url(value: string): Uint8Array {
+function fromBase64Url(value: string): Uint8Array<ArrayBuffer> {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/");
   const withPadding = padded + "=".repeat((4 - (padded.length % 4)) % 4);
   const str = atob(withPadding);
@@ -62,7 +62,7 @@ export async function createSessionToken(
   const payloadPart = toBase64Url(encoder.encode(JSON.stringify(payload)));
   const key = await getHmacKey();
   const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(payloadPart));
-  const signaturePart = toBase64Url(new Uint8Array(signature));
+  const signaturePart = toBase64Url(new Uint8Array(signature) as Uint8Array<ArrayBuffer>);
   return `${payloadPart}.${signaturePart}`;
 }
 
