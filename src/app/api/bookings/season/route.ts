@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
       status: body.status ?? "reserveret",
       seasonGroupId,
       recurrenceRule,
+      important: body.important ?? false,
       notes: body.notes ?? null,
       source: body.source ?? "manuel",
       createdBy: body.createdBy ?? "Medarbejder",

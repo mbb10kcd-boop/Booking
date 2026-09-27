@@ -161,6 +161,14 @@ export const bookings = sqliteTable("bookings", {
   // foreningsportalen - fremtidige aflysninger/flytninger sendes til BÅDE
   // denne og den registrerede kontaktmail (contactEmail/foreningens mail).
   extraEmail: text("extra_email"),
+  // "VIGTIG/KAMP": mange foreninger bruger deres faste ugentlige
+  // sæsontræningstid som kampdag i stedet for almindelig træning en given
+  // uge - vigtigt at kunne se med det samme i kalenderen, da en aflysning af
+  // en kamp (i modsætning til en almindelig træning) kan udløse en bøde til
+  // klubben fra forbundet (Martin). Sættes pr. booking-forekomst, ikke pr.
+  // sæson som helhed, da det typisk kun er ÉN bestemt uge der bliver en
+  // kampdag. Se IMPORTANT_ACCENT_CLASS/IMPORTANT_BADGE_* i statusLabels.ts.
+  important: integer("important", { mode: "boolean" }).default(false),
   notes: text("notes"),
   source: text("source", {
     enum: ["manuel", "mail", "portal", "pedel", "saesonimport"],

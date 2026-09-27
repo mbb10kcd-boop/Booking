@@ -78,6 +78,10 @@ export function BookingFormModal({
   const [contactName, setContactName] = useState(booking?.contactName ?? "");
   const [contactEmail, setContactEmail] = useState(booking?.contactEmail ?? "");
   const [notes, setNotes] = useState(booking?.notes ?? "");
+  // "VIGTIG/KAMP": markerer at denne ene forekomst er en kampdag i stedet
+  // for almindelig træning - se IMPORTANT_ACCENT_CLASS i statusLabels.ts for
+  // hvordan det vises i kalenderen, og schema.ts for baggrunden.
+  const [important, setImportant] = useState(booking?.important ?? false);
   const [error, setError] = useState<string | null>(null);
 
   function selectOrganization(newId: string) {
@@ -205,6 +209,7 @@ export function BookingFormModal({
         startsAt: editStart.length === 16 ? `${editStart}:00` : editStart,
         endsAt: editEnd.length === 16 ? `${editEnd}:00` : editEnd,
         notes: notes || null,
+        important,
         force,
         // Status røres slet ikke ved redigering - PATCH-endpointet bevarer
         // den eksisterende status uændret, når feltet udelades.
@@ -382,6 +387,7 @@ export function BookingFormModal({
         startsAt: slot.start.length === 16 ? `${slot.start}:00` : slot.start,
         endsAt: slot.end.length === 16 ? `${slot.end}:00` : slot.end,
         notes: notes || null,
+        important,
         status: DIRECT_BOOKING_STATUS,
         force,
       }),
@@ -436,6 +442,7 @@ export function BookingFormModal({
         endTime: slot.end.slice(11, 16),
         until: repeatUntil,
         notes: notes || null,
+        important,
         status: DIRECT_BOOKING_STATUS,
         force,
       }),
@@ -1021,6 +1028,27 @@ export function BookingFormModal({
                 onChange={(e) => setContactEmail(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
               />
+            </div>
+          </div>
+
+          <div
+            className={`rounded-xl border p-3 ${
+              important ? "border-orange-300 bg-orange-50" : "border-slate-200 bg-slate-50/50"
+            }`}
+          >
+            <label className="flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={important}
+                onChange={(e) => setImportant(e.target.checked)}
+                className="rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+              />
+              ⚑ VIGTIG/KAMP
+            </label>
+            <div className="text-xs text-slate-500 mt-1">
+              Sæt kryds hvis denne tid er (eller er blevet til) en kamp - fx en sæsontræningstid, der denne uge
+              bruges til en kamp i stedet. Markeres tydeligt i kalenderen, så det ikke overses, at en aflysning her
+              kan udløse en bøde til klubben.
             </div>
           </div>
 

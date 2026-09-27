@@ -34,6 +34,18 @@ export const SEASON_ACCENT_CLASS = "ring-2 ring-inset ring-indigo-400";
 export const SEASON_BADGE_CLASSES = "bg-indigo-100 text-indigo-700 border-indigo-300";
 export const SEASON_BADGE_LABEL = "↻ Sæson";
 
+// "VIGTIG/KAMP": en enkelt forekomst (typisk af en sæsonbooking) der er
+// blevet til en kampdag i stedet for almindelig træning. Skal kunne skelnes
+// tydeligt fra status- og sæson-farverne - både via en kraftig, afvigende
+// ringfarve OG et flag-ikon/tekst (ikke kun farve, jf. samme
+// colorblind-hensyn som ovenfor). Når en booking er BÅDE del af en sæson OG
+// markeret vigtig, vinder denne ring over SEASON_ACCENT_CLASS (Tailwinds
+// ring-klasser kan ikke stables), mens ↻-ikonet og sæson-badgen stadig vises
+// ved siden af flaget - vigtigheden er det mest presserende signal.
+export const IMPORTANT_ACCENT_CLASS = "ring-2 ring-inset ring-orange-500";
+export const IMPORTANT_BADGE_CLASSES = "bg-orange-500 text-white border-orange-600 font-semibold";
+export const IMPORTANT_BADGE_LABEL = "⚑ VIGTIG/KAMP";
+
 export const REQUEST_LINE_STATUS_LABELS: Record<string, string> = {
   ledig: "Ledig",
   konflikt: "Konflikt",

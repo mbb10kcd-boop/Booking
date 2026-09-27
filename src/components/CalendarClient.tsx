@@ -16,6 +16,9 @@ import {
   SEASON_ACCENT_CLASS,
   SEASON_BADGE_CLASSES,
   SEASON_BADGE_LABEL,
+  IMPORTANT_ACCENT_CLASS,
+  IMPORTANT_BADGE_CLASSES,
+  IMPORTANT_BADGE_LABEL,
   weekdayName,
 } from "@/lib/statusLabels";
 import { capitalizeDaDate, formatDaDate, formatDaTime } from "@/lib/ai/messages";
@@ -140,6 +143,7 @@ function bookingTooltip(booking: BookingDTO, facilityNameStr: string, organizati
     `Status: ${BOOKING_STATUS_LABELS[booking.status] ?? booking.status}`,
   ];
   if (booking.seasonGroupId) lines.push("↻ Sæsonbooking (gentages ugentligt)");
+  if (booking.important) lines.push("⚑ VIGTIG/KAMP");
   if (organizationNameStr) lines.push(`Forening: ${organizationNameStr}`);
   if (booking.contactName) lines.push(`Kontakt: ${booking.contactName}`);
   if (booking.contactEmail) lines.push(`E-mail: ${booking.contactEmail}`);
@@ -372,6 +376,22 @@ export function CalendarClient({
   function quickEdit(booking: BookingDTO) {
     setContextMenu(null);
     setQuickEditBooking(booking);
+  }
+
+  /**
+   * Sætter/fjerner "VIGTIG/KAMP"-markeringen på ÉN forekomst direkte fra
+   * hurtigmenuen, uden at skulle åbne redigeringsformularen - PATCH'er kun
+   * dette ene felt, så resten af bookingen (og en evt. sæson den er del af)
+   * er urørt.
+   */
+  async function quickToggleImportant(booking: BookingDTO) {
+    setContextMenu(null);
+    await fetch(`/api/bookings/${booking.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ important: !booking.important }),
+    });
+    loadBookings();
   }
 
   /**
@@ -638,8 +658,10 @@ export function CalendarClient({
 
         <div className="text-xs text-slate-400 mb-3">
           {SEASON_BADGE_LABEL} markerer sæsonbookinger (gentages ugentligt) - så en booking, der afviger fra den
-          faste sæson, er nem at få øje på. Dobbeltklik en dag for at oprette en booking den dag. Hold musen over en
-          booking for flere oplysninger, eller højreklik for hurtige handlinger.
+          faste sæson, er nem at få øje på. {IMPORTANT_BADGE_LABEL} markerer en enkelt forekomst, der er blevet til
+          en kampdag (fx en sæsontræning, der denne uge bruges til en kamp) - en aflysning her kan udløse en bøde
+          til klubben. Dobbeltklik en dag for at oprette en booking den dag. Hold musen over en booking for flere
+          oplysninger, eller højreklik for hurtige handlinger.
         </div>
 
         {view === "liste" && (
@@ -795,6 +817,7 @@ export function CalendarClient({
             setSelectedBooking(contextMenu.booking);
           }}
           onEdit={() => quickEdit(contextMenu.booking)}
+          onToggleImportant={() => quickToggleImportant(contextMenu.booking)}
           onCancelDay={() => quickCancelBooking(contextMenu.booking)}
           onCancelSeason={() => quickCancelSeason(contextMenu.booking)}
           onMail={() => quickMailOrganizer(contextMenu.booking)}
@@ -857,6 +880,7 @@ function BookingContextMenu({
   onClose,
   onOpenDetails,
   onEdit,
+  onToggleImportant,
   onCancelDay,
   onCancelSeason,
   onMail,
@@ -871,6 +895,7 @@ function BookingContextMenu({
   onClose: () => void;
   onOpenDetails: () => void;
   onEdit: () => void;
+  onToggleImportant: () => void;
   onCancelDay: () => void;
   onCancelSeason: () => void;
   onMail: () => void;
@@ -929,6 +954,9 @@ function BookingContextMenu({
       </button>
       <button className={itemClass} onClick={onEdit}>
         Rediger
+      </button>
+      <button className={itemClass} onClick={onToggleImportant}>
+        {booking.important ? "Fjern VIGTIG/KAMP-markering" : "⚑ Markér som VIGTIG/KAMP"}
       </button>
       {booking.status !== "aflyst" && booking.status !== "afvist" && (
         <>
@@ -1001,10 +1029,15 @@ function BookingCard({
       title={bookingTooltip(booking, facilityName, organizationNameStr)}
       className={`w-full text-left rounded-lg border px-2.5 py-1.5 text-xs hover:shadow-sm transition-shadow ${
         BOOKING_STATUS_CLASSES[booking.status] ?? "bg-slate-100 border-slate-300"
-      } ${isSeason ? SEASON_ACCENT_CLASS : ""}`}
+      } ${booking.important ? IMPORTANT_ACCENT_CLASS : isSeason ? SEASON_ACCENT_CLASS : ""}`}
       style={facilityCardStyle(facilityColor, booking.status)}
     >
       <div className="font-medium truncate">
+        {booking.important && (
+          <span title="VIGTIG/KAMP" className="mr-1">
+            ⚑
+          </span>
+        )}
         {isSeason && (
           <span title="Sæsonbooking - gentages ugentligt" className="mr-1">
             ↻
@@ -1068,6 +1101,11 @@ function ListView({
                   <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: facilityColor(b.facilityId) }} />
                   <div>
                     <div className="font-medium text-slate-800 text-sm">
+                      {b.important && (
+                        <span title="VIGTIG/KAMP" className="mr-1">
+                          ⚑
+                        </span>
+                      )}
                       {b.seasonGroupId && (
                         <span title="Sæsonbooking - gentages ugentligt" className="mr-1">
                           ↻
@@ -1086,6 +1124,11 @@ function ListView({
                     <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full border ${BOOKING_STATUS_CLASSES[b.status]}`}>
                       {BOOKING_STATUS_LABELS[b.status]}
                     </span>
+                    {b.important && (
+                      <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full border ${IMPORTANT_BADGE_CLASSES}`}>
+                        {IMPORTANT_BADGE_LABEL}
+                      </span>
+                    )}
                     {b.seasonGroupId && (
                       <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full border ${SEASON_BADGE_CLASSES}`}>
                         {SEASON_BADGE_LABEL}
@@ -1301,10 +1344,11 @@ function FacilityWeekView({
                           title={bookingTooltip(b, f.name, organizationName(b.organizationId))}
                           className={`w-full text-left rounded-lg px-1.5 py-1 text-[10px] border hover:shadow-sm transition-shadow ${
                             BOOKING_STATUS_CLASSES[b.status] ?? "bg-slate-100 border-slate-300"
-                          } ${b.seasonGroupId ? SEASON_ACCENT_CLASS : ""}`}
+                          } ${b.important ? IMPORTANT_ACCENT_CLASS : b.seasonGroupId ? SEASON_ACCENT_CLASS : ""}`}
                           style={facilityCardStyle(f.color, b.status)}
                         >
                           <div className="font-medium truncate">
+                            {b.important && <span className="mr-0.5">⚑</span>}
                             {b.seasonGroupId && <span className="mr-0.5">↻</span>}
                             {b.title}
                           </div>
@@ -1650,7 +1694,7 @@ function DayGridView({
                       }}
                       className={`rounded-lg border px-1.5 py-1 text-[10px] overflow-hidden cursor-grab active:cursor-grabbing shadow-sm ${
                         BOOKING_STATUS_CLASSES[b.status] ?? "bg-slate-100 border-slate-300"
-                      } ${b.seasonGroupId ? SEASON_ACCENT_CLASS : ""} ${isDragged ? "opacity-90 ring-2 ring-blue-400" : ""}`}
+                      } ${b.important ? IMPORTANT_ACCENT_CLASS : b.seasonGroupId ? SEASON_ACCENT_CLASS : ""} ${isDragged ? "opacity-90 ring-2 ring-blue-400" : ""}`}
                     >
                       <div
                         onPointerDown={(e) => startDrag(e, b, "resize-top")}
@@ -1658,6 +1702,7 @@ function DayGridView({
                         style={{ touchAction: "none" }}
                       />
                       <div className="font-medium truncate leading-tight">
+                        {b.important && <span className="mr-0.5">⚑</span>}
                         {b.seasonGroupId && <span className="mr-0.5">↻</span>}
                         {b.title}
                       </div>
@@ -2081,7 +2126,7 @@ function WeekGridView({
                         }}
                         className={`rounded-lg border px-1.5 py-1 text-[10px] overflow-hidden cursor-grab active:cursor-grabbing shadow-sm ${
                           BOOKING_STATUS_CLASSES[b.status] ?? "bg-slate-100 border-slate-300"
-                        } ${b.seasonGroupId ? SEASON_ACCENT_CLASS : ""}`}
+                        } ${b.important ? IMPORTANT_ACCENT_CLASS : b.seasonGroupId ? SEASON_ACCENT_CLASS : ""}`}
                       >
                         <div
                           onPointerDown={(e) => startDrag(e, b, "resize-top")}
@@ -2089,6 +2134,7 @@ function WeekGridView({
                           style={{ touchAction: "none" }}
                         />
                         <div className="font-medium truncate leading-tight">
+                          {b.important && <span className="mr-0.5">⚑</span>}
                           {b.seasonGroupId && <span className="mr-0.5">↻</span>}
                           {b.title}
                         </div>
@@ -2129,9 +2175,10 @@ function WeekGridView({
                           }}
                           className={`rounded-lg border px-1.5 py-1 text-[10px] overflow-hidden shadow-sm opacity-90 ring-2 ring-blue-400 ${
                             BOOKING_STATUS_CLASSES[b.status] ?? "bg-slate-100 border-slate-300"
-                          } ${b.seasonGroupId ? SEASON_ACCENT_CLASS : ""}`}
+                          } ${b.important ? IMPORTANT_ACCENT_CLASS : b.seasonGroupId ? SEASON_ACCENT_CLASS : ""}`}
                         >
                           <div className="font-medium truncate leading-tight">
+                            {b.important && <span className="mr-0.5">⚑</span>}
                             {b.seasonGroupId && <span className="mr-0.5">↻</span>}
                             {b.title}
                           </div>
@@ -2415,10 +2462,11 @@ function MonthView({
                     onContextMenu={(e) => onContextMenu(e, b)}
                     title={bookingTooltip(b, facilityName(b.facilityId), organizationName(b.organizationId))}
                     className={`w-full text-left truncate rounded px-1 py-0.5 text-[10px] border ${BOOKING_STATUS_CLASSES[b.status]} ${
-                      b.seasonGroupId ? SEASON_ACCENT_CLASS : ""
+                      b.important ? IMPORTANT_ACCENT_CLASS : b.seasonGroupId ? SEASON_ACCENT_CLASS : ""
                     }`}
                     style={facilityCardStyle(facilityColor(b.facilityId), b.status)}
                   >
+                    {b.important && "⚑ "}
                     {b.seasonGroupId && "↻ "}
                     {b.title}
                   </button>
@@ -2462,7 +2510,20 @@ function BookingDetail({
   const [busy, setBusy] = useState(false);
   const [seasonBusy, setSeasonBusy] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [toggleBusy, setToggleBusy] = useState(false);
   const isSeason = !!booking.seasonGroupId;
+
+  /** Sætter/fjerner VIGTIG/KAMP direkte fra detaljevisningen, uden at åbne redigeringsformularen. */
+  async function toggleImportant() {
+    setToggleBusy(true);
+    await fetch(`/api/bookings/${booking.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ important: !booking.important }),
+    });
+    setToggleBusy(false);
+    onChanged();
+  }
 
   async function cancelBooking() {
     setBusy(true);
@@ -2517,6 +2578,12 @@ function BookingDetail({
               {BOOKING_STATUS_LABELS[booking.status]}
             </span>
           </div>
+          {booking.important && (
+            <div className="flex justify-between">
+              <span className="text-slate-500">Type</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full border ${IMPORTANT_BADGE_CLASSES}`}>{IMPORTANT_BADGE_LABEL}</span>
+            </div>
+          )}
           {isSeason && (
             <div className="flex justify-between">
               <span className="text-slate-500">Type</span>
@@ -2579,6 +2646,17 @@ function BookingDetail({
                 {busy ? "Aflyser..." : isSeason ? "Aflys kun denne dag" : "Aflys booking"}
               </button>
             </div>
+            <button
+              onClick={toggleImportant}
+              disabled={toggleBusy}
+              className={`w-full rounded-lg border py-2.5 text-sm font-medium disabled:opacity-50 ${
+                booking.important
+                  ? "border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
+                  : "border-slate-300 text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              {toggleBusy ? "Opdaterer..." : booking.important ? "Fjern VIGTIG/KAMP-markering" : "⚑ Markér som VIGTIG/KAMP"}
+            </button>
             {isSeason && (
               <button
                 onClick={cancelSeason}

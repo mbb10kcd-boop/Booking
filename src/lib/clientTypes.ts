@@ -36,6 +36,7 @@ export interface BookingDTO {
   extraEmail: string | null;
   notes: string | null;
   source: string | null;
+  important: boolean | null;
 }
 
 export interface DayNoteDTO {

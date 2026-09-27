@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
     recurrenceRule: body.recurrenceRule ?? null,
     price: body.price ?? 0,
     paymentStatus: body.paymentStatus ?? "ikke_paakraevet",
+    important: body.important ?? false,
     notes: body.notes ?? null,
     source: body.source ?? "manuel",
     createdBy: body.createdBy ?? "Medarbejder",
