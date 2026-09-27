@@ -5,6 +5,7 @@ import { logAudit } from "@/lib/audit";
 import { localISODate } from "@/lib/date";
 import { seasonCancellationMessage } from "@/lib/ai/messages";
 import { newId } from "@/lib/ids";
+import { resolveNotificationRecipients } from "@/lib/notifications";
 
 /**
  * Aflyser en HEL sæson på én gang - alle forekomster der ikke allerede er
@@ -30,12 +31,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   // Én samlet aflysningsmail for hele sæsonen (ikke én pr. forekomst).
   const first = toCancel[0];
   if (first) {
-    let recipient = first.contactEmail;
-    if (!recipient && first.organizationId) {
-      const [org] = await db.select().from(schema.organizations).where(eq(schema.organizations.id, first.organizationId));
-      recipient = org?.contactEmail ?? null;
-    }
-    if (recipient) {
+    const recipients = await resolveNotificationRecipients(first);
+    if (recipients.length > 0) {
       const [facility] = await db.select().from(schema.facilities).where(eq(schema.facilities.id, first.facilityId));
       const weekday = first.recurrenceRule?.weekday ?? new Date(`${first.startsAt.slice(0, 10)}T00:00:00`).getDay();
       const message = seasonCancellationMessage({
@@ -46,14 +43,16 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
         cancelledFrom: first.startsAt.slice(0, 10),
         recipientName: first.contactName ?? undefined,
       });
-      await db.insert(schema.notificationLog).values({
-        id: newId("notif"),
-        bookingId: first.id,
-        type: "aflysning",
-        recipient,
-        subject: "Aflysning af jeres sæsonbooking",
-        body: message,
-      });
+      for (const recipient of recipients) {
+        await db.insert(schema.notificationLog).values({
+          id: newId("notif"),
+          bookingId: first.id,
+          type: "aflysning",
+          recipient,
+          subject: "Aflysning af jeres sæsonbooking",
+          body: message,
+        });
+      }
     }
   }
 

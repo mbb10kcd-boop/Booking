@@ -16,7 +16,13 @@ export async function GET() {
   const orgs = await db
     .select({ id: schema.organizations.id, name: schema.organizations.name })
     .from(schema.organizations)
-    .where(and(eq(schema.organizations.status, "godkendt"), ne(schema.organizations.internal, true)))
+    .where(
+      and(
+        eq(schema.organizations.status, "godkendt"),
+        ne(schema.organizations.internal, true),
+        ne(schema.organizations.archived, true),
+      ),
+    )
     .orderBy(schema.organizations.name);
   return NextResponse.json(orgs);
 }

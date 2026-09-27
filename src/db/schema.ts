@@ -88,6 +88,12 @@ export const organizations = sqliteTable("organizations", {
   // (admin)/kalender/page.tsx) - seed-drevet, ingen admin-UI, samme mønster
   // som hiddenFromOrgPortal på facilities.
   internal: integer("internal", { mode: "boolean" }).default(false),
+  // Arkiverede foreninger (fejloprettede, nedlagte, fusionerede osv.) skjules
+  // fra bookingdropdowns og den offentlige foreningsportal, men bevares - så
+  // eksisterende bookinghistorik/aflysningsmails stadig kan finde foreningens
+  // navn og (aktuelle) kontaktmail. Se /foreninger. Foreninger uden nogen
+  // bookinger kan i stedet slettes helt (se DELETE /api/organizations/[id]).
+  archived: integer("archived", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 

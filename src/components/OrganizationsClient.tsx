@@ -143,9 +143,16 @@ export function OrganizationsClient({ initialOrganizations }: { initialOrganizat
 
       <div className="rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
         {rest.map((o) => (
-          <Link key={o.id} href={`/foreninger/${o.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-slate-50">
+          <Link
+            key={o.id}
+            href={`/foreninger/${o.id}`}
+            className={`flex items-center justify-between px-4 py-3 hover:bg-slate-50 ${o.archived ? "opacity-60" : ""}`}
+          >
             <div>
-              <div className="font-medium text-slate-900">{o.name}</div>
+              <div className="font-medium text-slate-900">
+                {o.name}
+                {o.archived && <span className="ml-2 text-xs font-normal text-slate-400">(arkiveret)</span>}
+              </div>
               <div className="text-xs text-slate-500">{o.contactName}{o.contactEmail ? ` · ${o.contactEmail}` : ""}</div>
             </div>
             <div className="flex items-center gap-3">

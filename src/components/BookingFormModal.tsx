@@ -994,11 +994,14 @@ export function BookingFormModal({
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             >
               <option value="">Ingen</option>
-              {organizations.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
+              {organizations
+                .filter((o) => !o.archived || o.id === organizationId)
+                .map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                    {o.archived ? " (arkiveret)" : ""}
+                  </option>
+                ))}
             </select>
           </div>
 

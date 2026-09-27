@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { BOOKING_STATUS_CLASSES, BOOKING_STATUS_LABELS } from "@/lib/statusLabels";
 import { formatDaDate, formatDaTime } from "@/lib/ai/messages";
+import { OrganizationEditClient } from "@/components/OrganizationEditClient";
 
 export const dynamic = "force-dynamic";
 
@@ -22,28 +23,20 @@ export default async function OrganizationDetailPage({ params }: { params: Promi
     <div>
       <PageHeader title={org.name} subtitle="Forening" />
       <div className="p-4 md:p-8 max-w-3xl space-y-6">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <div className="text-slate-500">Kontaktperson</div>
-            <div className="font-medium text-slate-900">{org.contactName ?? "-"}</div>
-          </div>
-          <div>
-            <div className="text-slate-500">Telefon</div>
-            <div className="font-medium text-slate-900">{org.contactPhone ?? "-"}</div>
-          </div>
-          <div>
-            <div className="text-slate-500">E-mail</div>
-            <div className="font-medium text-slate-900">{org.contactEmail ?? "-"}</div>
-          </div>
-          <div>
-            <div className="text-slate-500">CVR</div>
-            <div className="font-medium text-slate-900">{org.cvr ?? "-"}</div>
-          </div>
-          <div className="col-span-2">
-            <div className="text-slate-500">Adresse</div>
-            <div className="font-medium text-slate-900">{org.address ?? "-"}</div>
-          </div>
-        </div>
+        <OrganizationEditClient
+          organization={{
+            id: org.id,
+            name: org.name,
+            cvr: org.cvr,
+            address: org.address,
+            contactName: org.contactName,
+            contactEmail: org.contactEmail,
+            contactPhone: org.contactPhone,
+            archived: org.archived,
+            internal: org.internal ?? false,
+          }}
+          bookingCount={bookings.length}
+        />
 
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 mb-3">
