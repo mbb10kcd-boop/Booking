@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
-import { eq, and, ne } from "drizzle-orm";
+import { eq, and, ne, or, isNull } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
 
@@ -20,7 +20,11 @@ export async function GET() {
       and(
         eq(schema.organizations.status, "godkendt"),
         ne(schema.organizations.internal, true),
-        ne(schema.organizations.archived, true),
+        // archived er nullable (samme mønster som facilities.archived) - nye
+        // foreninger og alle eksisterende rækker før denne kolonne blev
+        // tilføjet kan derfor have NULL, som skal tælle som "ikke arkiveret".
+        // "!= true" ville fejlagtigt filtrere disse NULL-rækker helt væk.
+        or(isNull(schema.organizations.archived), eq(schema.organizations.archived, false)),
       ),
     )
     .orderBy(schema.organizations.name);

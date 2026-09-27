@@ -11,7 +11,7 @@ interface OrganizationEditable {
   contactName: string | null;
   contactEmail: string | null;
   contactPhone: string | null;
-  archived: boolean;
+  archived: boolean | null;
   internal: boolean;
 }
 

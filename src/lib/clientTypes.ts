@@ -57,7 +57,7 @@ export interface OrganizationDTO {
   notes: string | null;
   status: "godkendt" | "afventer_godkendelse" | "afvist";
   internal: boolean | null;
-  archived: boolean;
+  archived: boolean | null;
 }
 
 export interface RescheduleRequestDTO {

@@ -93,7 +93,7 @@ export const organizations = sqliteTable("organizations", {
   // eksisterende bookinghistorik/aflysningsmails stadig kan finde foreningens
   // navn og (aktuelle) kontaktmail. Se /foreninger. Foreninger uden nogen
   // bookinger kan i stedet slettes helt (se DELETE /api/organizations/[id]).
-  archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+  archived: integer("archived", { mode: "boolean" }).default(false),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
