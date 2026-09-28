@@ -53,6 +53,14 @@ export const facilities = sqliteTable("facilities", {
   // videre er feltet kun en intern markering af HVILKE lokaler der overhovedet
   // har en kodedør.
   weAccessDoorId: text("we_access_door_id"),
+  // Sætter denne facilitet i en gruppe af INDBYRDES OMBYTTELIGE ressourcer
+  // (fx de 6 pickleball-/badmintonbaner, som en gæst er ligeglad med det
+  // konkrete banenummer på) - alle faciliteter med samme (ikke-tomme) tekst
+  // her tilbydes samlet ÉT sted i den offentlige privatpersonportal, hvor
+  // gæsten blot vælger et antal, og systemet selv finder ledige baner i
+  // stedet for at gæsten skal klikke sig igennem dem én for én. NULL
+  // (standard) betyder faciliteten vises for sig selv som hidtil.
+  bookableGroupLabel: text("bookable_group_label"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -169,6 +177,14 @@ export const bookings = sqliteTable("bookings", {
   // sæson som helhed, da det typisk kun er ÉN bestemt uge der bliver en
   // kampdag. Se IMPORTANT_ACCENT_CLASS/IMPORTANT_BADGE_* i statusLabels.ts.
   important: integer("important", { mode: "boolean" }).default(false),
+  // Grupperer flere bookinger oprettet SAMTIDIG som én bestilling af
+  // indbyrdes ombyttelige ressourcer (fx 2 pickleball-/badmintonbaner booket
+  // på én gang via den offentlige portal, se bookableGroupLabel på
+  // facilities og /api/portal/book-group) - hver facilitet får stadig sin
+  // egen bookingrække (så kalenderen viser den rigtige, konkrete bane pr.
+  // række), men de deler samme betaling og adgangskode. NULL for almindelige
+  // enkeltbookinger.
+  multiBookingGroupId: text("multi_booking_group_id"),
   notes: text("notes"),
   source: text("source", {
     enum: ["manuel", "mail", "portal", "pedel", "saesonimport"],

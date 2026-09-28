@@ -117,3 +117,58 @@ export async function suggestAlternativeFacilities(
   }
   return free;
 }
+
+/**
+ * Blandt en gruppe af INDBYRDES OMBYTTELIGE faciliteter (fx de 6 pickleball-
+ * /badmintonbaner, se bookableGroupLabel i src/db/schema.ts), find hvilke af
+ * dem der er ledige i det ønskede tidsrum. Bruges både til selve
+ * ledighedstjekket og til at afgøre HVILKE konkrete bane-id'er en bestilling
+ * på "N baner" rent faktisk skal tildeles.
+ */
+export async function findAvailableInGroup(
+  facilityIds: string[],
+  startsAt: string,
+  endsAt: string
+): Promise<string[]> {
+  const free: string[] = [];
+  for (const facilityId of facilityIds) {
+    // eslint-disable-next-line no-await-in-loop
+    const conflicts = await findConflicts(facilityId, startsAt, endsAt);
+    if (conflicts.length === 0) free.push(facilityId);
+  }
+  return free;
+}
+
+/**
+ * Ligesom suggestAlternativeTimes, men for en GRUPPE af ombyttelige
+ * faciliteter: foreslår tidspunkter samme dag, hvor mindst `count` af dem er
+ * ledige samtidig (samme varighed som det oprindeligt ønskede tidsrum).
+ */
+export async function suggestAlternativeGroupTimes(
+  facilityIds: string[],
+  startsAt: string,
+  endsAt: string,
+  count: number
+): Promise<{ startsAt: string; endsAt: string }[]> {
+  const durationMs = new Date(endsAt).getTime() - new Date(startsAt).getTime();
+  const dayStart = new Date(startsAt);
+  dayStart.setHours(7, 0, 0, 0);
+  const dayEnd = new Date(startsAt);
+  dayEnd.setHours(23, 0, 0, 0);
+
+  const suggestions: { startsAt: string; endsAt: string }[] = [];
+  let cursor = new Date(dayStart);
+  while (cursor.getTime() + durationMs <= dayEnd.getTime() && suggestions.length < 3) {
+    const candidateStart = new Date(cursor);
+    const candidateEnd = new Date(cursor.getTime() + durationMs);
+    const candidateStartStr = nowLocalDateTimeString(candidateStart);
+    const candidateEndStr = nowLocalDateTimeString(candidateEnd);
+    // eslint-disable-next-line no-await-in-loop
+    const free = await findAvailableInGroup(facilityIds, candidateStartStr, candidateEndStr);
+    if (free.length >= count) {
+      suggestions.push({ startsAt: candidateStartStr, endsAt: candidateEndStr });
+    }
+    cursor = new Date(cursor.getTime() + 30 * 60 * 1000); // ryk 30 min frem
+  }
+  return suggestions;
+}

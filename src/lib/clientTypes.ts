@@ -15,6 +15,7 @@ export interface FacilityDTO {
   hiddenFromOrgPortal: boolean | null;
   hiddenFromInfoScreen: boolean | null;
   weAccessDoorId: string | null;
+  bookableGroupLabel: string | null;
 }
 
 export interface BookingDTO {
@@ -37,6 +38,7 @@ export interface BookingDTO {
   notes: string | null;
   source: string | null;
   important: boolean | null;
+  multiBookingGroupId: string | null;
 }
 
 export interface DayNoteDTO {

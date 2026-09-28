@@ -66,6 +66,36 @@ Venlig hilsen
 Grenaa Idrætscenter`;
 }
 
+/**
+ * Samme som confirmationMessage, men for en bestilling af FLERE baner på én
+ * gang (se multiBookingGroupId i src/db/schema.ts og /api/portal/book-group)
+ * - fx 2 pickleball-/badmintonbaner booket samtidig. Alle baner deler samme
+ * tidsrum og (hvis relevant) samme dørkode, så der sendes kun ÉN mail med
+ * alle banenavne oplistet, i stedet for én forvirrende mail pr. bane.
+ */
+export function groupConfirmationMessage(opts: {
+  facilityNames: string[];
+  startsAt: string;
+  endsAt: string;
+  recipientName?: string;
+  accessCode?: string | null;
+}): string {
+  return `Hej${opts.recipientName ? ` ${opts.recipientName}` : ""}
+
+Din booking er bekræftet:
+
+${opts.facilityNames.map((n) => `- ${n}`).join("\n")}
+${formatDaDate(opts.startsAt)}
+${formatDaTime(opts.startsAt)} - ${formatDaTime(opts.endsAt)}
+${opts.accessCode ? `
+Dørkode: ${opts.accessCode}
+` : ""}
+Vi glæder os til at se jer.
+
+Venlig hilsen
+Grenaa Idrætscenter`;
+}
+
 export function rejectionMessage(opts: {
   facilityName: string;
   startsAt: string;
