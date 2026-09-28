@@ -269,7 +269,7 @@ export function BookingFormModal({
     return [
       {
         key: newSlotKey(),
-        facilityId: defaultFacilityId ?? facilities[0]?.id ?? "",
+        facilityId: defaultFacilityId ?? "",
         // Samme "start + 1 time"-forslag som handleSlotStartChange bruger,
         // når brugeren selv skifter starttidspunktet - så en booking der er
         // forudfyldt via dobbeltklik i kalenderen (se CalendarClient) også
@@ -788,6 +788,11 @@ export function BookingFormModal({
                         onChange={(e) => updateSlot(slot.key, { facilityId: e.target.value })}
                         className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white disabled:opacity-60"
                       >
+                        {!slot.facilityId && (
+                          <option value="" disabled>
+                            Vælg facilitet…
+                          </option>
+                        )}
                         {facilities
                           .filter((f) => !f.archived)
                           .map((f) => (

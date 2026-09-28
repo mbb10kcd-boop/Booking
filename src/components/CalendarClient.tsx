@@ -250,6 +250,30 @@ export function CalendarClient({
     return addDays(new Date(), 30);
   }, [view, anchor]);
 
+  // Samlet dato/uge-label til den fastfrosne værktøjslinje foroven - så man
+  // altid kan se hvilken periode man kigger på, uanset hvor langt man har
+  // scrollet ned i en lang visning (fx Dagsplan eller Ugeplan). Erstatter de
+  // tidligere selvstændige overskrifter inde i selve Dagsplan-/Ugeplan-
+  // visningerne, som forsvandt ud af syne ved scroll.
+  const headerDateLabel = useMemo(() => {
+    const monthNameDa = (d: Date) => d.toLocaleDateString("da-DK", { month: "long" });
+    if (view === "dag") {
+      return `${capitalizeDaDate(formatDaDate(rangeStart.toISOString()))} \u00b7 Uge ${isoWeekNumber(rangeStart)}`;
+    }
+    if (view === "uge" || view === "ugeplan" || view === "facilitet") {
+      const weekEnd = addDays(rangeStart, 6);
+      const range =
+        rangeStart.getMonth() === weekEnd.getMonth()
+          ? `${rangeStart.getDate()}.\u2013${weekEnd.getDate()}. ${monthNameDa(weekEnd)} ${weekEnd.getFullYear()}`
+          : `${rangeStart.getDate()}. ${monthNameDa(rangeStart)} \u2013 ${weekEnd.getDate()}. ${monthNameDa(weekEnd)} ${weekEnd.getFullYear()}`;
+      return `Uge ${isoWeekNumber(rangeStart)} \u00b7 ${range}`;
+    }
+    if (view === "maaned") {
+      return capitalizeDaDate(rangeStart.toLocaleDateString("da-DK", { month: "long", year: "numeric" }));
+    }
+    return "";
+  }, [view, rangeStart]);
+
   async function loadBookings() {
     setLoading(true);
     const params = new URLSearchParams({
@@ -571,7 +595,10 @@ export function CalendarClient({
 
       {/* Main calendar area */}
       <div className="flex-1 min-w-0">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        {/* Fastfrosset (sticky) værktøjslinje: visningsvalg, dato-navigation og
+            det aktuelle datointerval skal altid være synlige, også når man
+            scroller langt ned i en høj visning som Dagsplan/Ugeplan. */}
+        <div className="sticky top-0 z-20 -mx-1 bg-slate-50 px-1 py-2 flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
             <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
               {(["liste", "uge", "ugeplan", "facilitet", "dag", "maaned"] as ViewMode[]).map((v) => (
@@ -639,6 +666,9 @@ export function CalendarClient({
                   &rarr;
                 </button>
               </div>
+            )}
+            {headerDateLabel && (
+              <div className="text-sm font-semibold text-slate-700 whitespace-nowrap">{headerDateLabel}</div>
             )}
           </div>
           <button
@@ -1617,9 +1647,6 @@ function DayGridView({
 
   return (
     <div className="select-none">
-      <div className="mb-3 text-sm font-semibold text-slate-700">
-        {capitalizeDaDate(formatDaDate(day.toISOString()))} &middot; Uge {isoWeekNumber(day)}
-      </div>
       <div className="overflow-x-auto pb-2">
       <div className="flex min-w-full items-start">
         {/* Tidsakse-gutter */}
@@ -2019,18 +2046,8 @@ function WeekGridView({
     );
   }
 
-  const weekEnd = addDays(weekStart, 6);
-  const monthNameDa = (d: Date) => d.toLocaleDateString("da-DK", { month: "long" });
-  const rangeLabel =
-    weekStart.getMonth() === weekEnd.getMonth()
-      ? `${weekStart.getDate()}.–${weekEnd.getDate()}. ${monthNameDa(weekEnd)} ${weekEnd.getFullYear()}`
-      : `${weekStart.getDate()}. ${monthNameDa(weekStart)} – ${weekEnd.getDate()}. ${monthNameDa(weekEnd)} ${weekEnd.getFullYear()}`;
-
   return (
     <div className="select-none">
-      <div className="mb-3 text-sm font-semibold text-slate-700">
-        Uge {isoWeekNumber(weekStart)} &middot; {rangeLabel}
-      </div>
       <div className="overflow-x-auto pb-2">
         <div className="flex min-w-full items-start">
           {/* Tidsakse-gutter */}
