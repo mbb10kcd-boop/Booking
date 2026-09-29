@@ -51,7 +51,7 @@ export default function PublicBookingPortal() {
   useEffect(() => {
     fetch("/api/facilities")
       .then((r) => r.json())
-      .then((data) => setFacilities(data.filter((f: FacilityDTO) => !f.archived)));
+      .then((data) => setFacilities(data.filter((f: FacilityDTO) => !f.archived && !f.hiddenFromPrivatePortal)));
   }, []);
 
   useEffect(() => {

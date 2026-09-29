@@ -31,6 +31,12 @@ export async function POST(req: NextRequest) {
   if (facilityRows.length !== facilityIds.length) {
     return NextResponse.json({ error: "En eller flere faciliteter blev ikke fundet" }, { status: 404 });
   }
+  // Server-side håndhævelse af hiddenFromPrivatePortal (se schema.ts og
+  // /api/portal/book) - samme spærre som enkelt-facilitet-flowet.
+  const hiddenSelected = facilityRows.filter((f) => f.hiddenFromPrivatePortal);
+  if (hiddenSelected.length > 0) {
+    return NextResponse.json({ error: "En eller flere valgte faciliteter kan ikke bookes af privatpersoner" }, { status: 400 });
+  }
   const facilityById = new Map(facilityRows.map((f) => [f.id, f]));
 
   // Sidste, autoritative konflikttjek - se docstring ovenfor.

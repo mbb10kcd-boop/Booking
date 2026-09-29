@@ -17,6 +17,13 @@ export async function POST(req: NextRequest) {
 
   const [facility] = await db.select().from(schema.facilities).where(eq(schema.facilities.id, facilityId));
   if (!facility) return NextResponse.json({ error: "Facilitet ikke fundet" }, { status: 404 });
+  // Server-side håndhævelse af hiddenFromPrivatePortal (se schema.ts) - selvom
+  // klienten kun VISER de tilladte faciliteter, skal et direkte API-kald ikke
+  // kunne omgå at fx Multisalen eller mødelokalerne fra september 2026 kun må
+  // bookes af foreninger, ikke privatpersoner.
+  if (facility.hiddenFromPrivatePortal) {
+    return NextResponse.json({ error: "Denne facilitet kan ikke bookes af privatpersoner" }, { status: 400 });
+  }
 
   const conflicts = await findConflicts(facilityId, startsAt, endsAt);
   if (conflicts.length > 0) {

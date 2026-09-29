@@ -57,13 +57,20 @@ async function main() {
   // hiddenFromOrgPortal i schema.ts. Idempotent: kan trygt køre ved hver
   // deploy uden at påvirke andre felter.
   await sqlite.execute(
-    "UPDATE facilities SET hidden_from_org_portal = 1 WHERE name LIKE 'Badmintonbane%' AND (hidden_from_org_portal IS NULL OR hidden_from_org_portal = 0)"
+    "UPDATE facilities SET hidden_from_org_portal = 1 WHERE name LIKE '%Badmintonbane%' AND (hidden_from_org_portal IS NULL OR hidden_from_org_portal = 0)"
   );
   // Samme idempotente fixup for infoskærmene: badmintonbanerne må aldrig
   // fremgå af nogen infoskærm (Martin har bedt om at de slet ikke vises der)
   // - se hiddenFromInfoScreen i schema.ts.
   await sqlite.execute(
-    "UPDATE facilities SET hidden_from_info_screen = 1 WHERE name LIKE 'Badmintonbane%' AND (hidden_from_info_screen IS NULL OR hidden_from_info_screen = 0)"
+    "UPDATE facilities SET hidden_from_info_screen = 1 WHERE name LIKE '%Badmintonbane%' AND (hidden_from_info_screen IS NULL OR hidden_from_info_screen = 0)"
+  );
+  // Idempotent fixup, spejlvendt af ovenstående (Martin, september 2026):
+  // ALT ANDET end pickleball-/badmintonbanerne skal fra nu af kun kunne
+  // bookes af foreninger, ikke af privatpersoner - se hiddenFromPrivatePortal
+  // i schema.ts.
+  await sqlite.execute(
+    "UPDATE facilities SET hidden_from_private_portal = 1 WHERE name NOT LIKE '%Badmintonbane%' AND (hidden_from_private_portal IS NULL OR hidden_from_private_portal = 0)"
   );
   // Idempotent fixup for hvilke lokaler der rent faktisk har en kodedør fra
   // WeAccess (Martin: "der er kun kodedør på træningshallen og multisalen").
@@ -159,7 +166,16 @@ async function main() {
   // Se conflictMode-kolonnen i src/db/schema.ts og facilityRelation() i
   // src/lib/facilities.ts for selve konflikt-/advarselslogikken.
   // -------------------------------------------------------------------
-  const opvisningshallen = { id: id("fac"), name: "Opvisningshallen", capacity: 400, color: "#2563eb", sortOrder: 1 };
+  const opvisningshallen = {
+    id: id("fac"),
+    name: "Opvisningshallen",
+    capacity: 400,
+    color: "#2563eb",
+    sortOrder: 1,
+    // Fra september 2026 kun bookbar af foreninger, ikke privatpersoner - se
+    // hiddenFromPrivatePortal i schema.ts.
+    hiddenFromPrivatePortal: true,
+  };
   const klatrevaeg = {
     id: id("fac"),
     name: "Klatrevæg",
@@ -168,6 +184,7 @@ async function main() {
     capacity: 10,
     color: "#a855f7",
     sortOrder: 2,
+    hiddenFromPrivatePortal: true,
   };
   const traeningshallen = {
     id: id("fac"),
@@ -177,10 +194,11 @@ async function main() {
     sortOrder: 3,
     // WeAccess-dørens id - se resolveDoorFacilityId() i src/lib/accessCodes.ts.
     weAccessDoorId: "traeningshallen",
+    hiddenFromPrivatePortal: true,
   };
   const badmintonbaner = [1, 2, 3, 4, 5, 6].map((n) => ({
     id: id("fac"),
-    name: `Badmintonbane ${n}`,
+    name: `Pickleballbane/Badmintonbane ${n}`,
     parentId: traeningshallen.id,
     capacity: 4,
     pricePerHour: 120,
@@ -193,6 +211,11 @@ async function main() {
     // Skal heller ALDRIG fremgå af infoskærmene (Martin: banerne er interne
     // og skal ikke optage plads/synlighed på de fastmonterede skærme).
     hiddenFromInfoScreen: true,
+    // De ENESTE faciliteter privatpersoner fortsat må booke (Martin,
+    // september 2026) - se hiddenFromPrivatePortal i schema.ts. Grupperet så
+    // gæsten blot vælger et antal baner i stedet for et bestemt banenummer -
+    // se bookableGroupLabel i schema.ts.
+    bookableGroupLabel: "Pickleballbane/Badmintonbane",
   }));
   const multisalen = {
     id: id("fac"),
@@ -201,6 +224,7 @@ async function main() {
     color: "#7c3aed",
     sortOrder: 10,
     weAccessDoorId: "multisalen",
+    hiddenFromPrivatePortal: true,
   };
   const moedelokaler = [1, 2, 3, 4].map((n) => ({
     id: id("fac"),
@@ -208,8 +232,16 @@ async function main() {
     capacity: 12,
     color: "#64748b",
     sortOrder: 10 + n,
+    hiddenFromPrivatePortal: true,
   }));
-  const klubsekretariatet = { id: id("fac"), name: "Klubsekretariatet", capacity: 6, color: "#475569", sortOrder: 15 };
+  const klubsekretariatet = {
+    id: id("fac"),
+    name: "Klubsekretariatet",
+    capacity: 6,
+    color: "#475569",
+    sortOrder: 15,
+    hiddenFromPrivatePortal: true,
+  };
 
   const allFacilities = [
     opvisningshallen,
@@ -233,8 +265,10 @@ async function main() {
       sortOrder: f.sortOrder,
       bookingTypes: [],
       hiddenFromOrgPortal: (f as any).hiddenFromOrgPortal ?? false,
+      hiddenFromPrivatePortal: (f as any).hiddenFromPrivatePortal ?? false,
       hiddenFromInfoScreen: (f as any).hiddenFromInfoScreen ?? false,
       weAccessDoorId: (f as any).weAccessDoorId ?? null,
+      bookableGroupLabel: (f as any).bookableGroupLabel ?? null,
     });
   }
   console.log(`Oprettede ${allFacilities.length} faciliteter/underressourcer.`);

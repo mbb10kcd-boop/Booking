@@ -38,6 +38,16 @@ export const facilities = sqliteTable("facilities", {
   // bookes af privatpersoner) - påvirker IKKE den almindelige administration,
   // pedelvisningen eller den offentlige portal for privatpersoner.
   hiddenFromOrgPortal: integer("hidden_from_org_portal", { mode: "boolean" }).default(false),
+  // Skjuler faciliteten i DEN OFFENTLIGE PRIVATPERSONPORTAL (det omvendte af
+  // hiddenFromOrgPortal ovenfor) - fx Opvisningshallen, Træningshallen,
+  // Multisalen, mødelokalerne og Klubsekretariatet, som fra september 2026
+  // kun må bookes af foreninger, ikke af privatpersoner (Martin: "alle de
+  // øvrige baner skal ikke kunne bookes af privatpersoner - de skal kun være
+  // til rådighed for foreningerne"). Påvirker IKKE administrationen,
+  // pedelvisningen eller foreningsportalen. Pickleball-/badmintonbanerne
+  // (bookableGroupLabel) er IKKE skjult her, da de netop er de eneste
+  // faciliteter privatpersoner fortsat må booke.
+  hiddenFromPrivatePortal: integer("hidden_from_private_portal", { mode: "boolean" }).default(false),
   // Skjuler faciliteten HELT på infoskærmene (fx badmintonbanerne - de må
   // ikke fremgå af nogen infoskærm, uanset hvilke faciliteter den enkelte
   // skærm ellers er sat op til at vise) - se /api/screens/[id].

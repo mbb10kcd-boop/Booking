@@ -13,6 +13,7 @@ export interface FacilityDTO {
   bookingTypes: string[] | null;
   restrictions: string | null;
   hiddenFromOrgPortal: boolean | null;
+  hiddenFromPrivatePortal: boolean | null;
   hiddenFromInfoScreen: boolean | null;
   weAccessDoorId: string | null;
   bookableGroupLabel: string | null;

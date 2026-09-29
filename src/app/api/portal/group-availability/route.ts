@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   // portalen sender selv id'erne (fra /api/facilities), men vi stoler ikke
   // blindt på klienten for et offentligt, ikke-autentificeret endpoint.
   const rows = await db.select().from(schema.facilities).where(inArray(schema.facilities.id, facilityIds));
-  const validIds = rows.filter((f) => !f.archived).map((f) => f.id);
+  const validIds = rows.filter((f) => !f.archived && !f.hiddenFromPrivatePortal).map((f) => f.id);
 
   const available = await findAvailableInGroup(validIds, startsAt, endsAt);
 
