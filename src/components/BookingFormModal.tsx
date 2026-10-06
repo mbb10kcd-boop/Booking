@@ -180,7 +180,7 @@ export function BookingFormModal({
       await fetch(`/api/bookings/${conflict.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "aflyst" }),
+        body: JSON.stringify({ status: "aflyst", cancelReason: title.trim() || undefined }),
       });
     }
     await submitSeasonMove(true);
@@ -250,7 +250,7 @@ export function BookingFormModal({
       await fetch(`/api/bookings/${conflict.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "aflyst" }),
+        body: JSON.stringify({ status: "aflyst", cancelReason: title.trim() || undefined }),
       });
     }
     await submitEdit(true);
@@ -511,7 +511,7 @@ export function BookingFormModal({
       await fetch(`/api/bookings/${conflict.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "aflyst" }),
+        body: JSON.stringify({ status: "aflyst", cancelReason: title.trim() || undefined }),
       });
     }
     const result = await createSlot(slot, true);
@@ -530,7 +530,7 @@ export function BookingFormModal({
       await fetch(`/api/bookings/${conflictId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "aflyst" }),
+        body: JSON.stringify({ status: "aflyst", cancelReason: title.trim() || undefined }),
       });
     }
     const result = await createSlot(slot, true);

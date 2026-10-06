@@ -1,5 +1,5 @@
 import { db, schema } from "@/db";
-import { and, eq, gte, isNotNull } from "drizzle-orm";
+import { and, eq, gte, isNotNull, or } from "drizzle-orm";
 import { localISODate } from "@/lib/date";
 
 export type CancelListRow = {
@@ -9,7 +9,7 @@ export type CancelListRow = {
   endTime: string;
   hall: string; // øverste facilitet (fx Træningshallen)
   facility: string; // den konkrete facilitet
-  who: string; // forening
+  who: string | null; // forening (null for poster lagt direkte på listen)
   reason: string | null;
 };
 
@@ -29,7 +29,9 @@ export async function loadCancelList(): Promise<CancelListRow[]> {
         and(
           eq(schema.bookings.status, "aflyst"),
           isNotNull(schema.bookings.cancelledAt),
-          isNotNull(schema.bookings.organizationId),
+          // Foreningsbookinger - eller poster lagt direkte på listen (source
+          // "aflysningsliste", fx en begivenhed der optager hallen).
+          or(isNotNull(schema.bookings.organizationId), eq(schema.bookings.source, "aflysningsliste")),
           gte(schema.bookings.startsAt, `${today}T00:00:00`)
         )
       ),
@@ -50,7 +52,7 @@ export async function loadCancelList(): Promise<CancelListRow[]> {
     endTime: b.endsAt.slice(11, 16),
     hall: root(b.facilityId)?.name ?? "Ukendt",
     facility: facById.get(b.facilityId)?.name ?? "Ukendt",
-    who: orgName.get(b.organizationId!) ?? b.title,
+    who: b.organizationId ? orgName.get(b.organizationId) ?? b.title : null,
     reason: b.cancelReason?.trim() || null,
   }));
   result.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime) || a.facility.localeCompare(b.facility));

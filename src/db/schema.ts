@@ -203,7 +203,7 @@ export const bookings = sqliteTable("bookings", {
   multiBookingGroupId: text("multi_booking_group_id"),
   notes: text("notes"),
   source: text("source", {
-    enum: ["manuel", "mail", "portal", "pedel", "saesonimport"],
+    enum: ["manuel", "mail", "portal", "pedel", "saesonimport", "aflysningsliste"],
   }).default("manuel"),
   createdBy: text("created_by"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),

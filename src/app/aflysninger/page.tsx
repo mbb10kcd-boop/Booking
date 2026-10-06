@@ -55,12 +55,14 @@ export default async function AflysningerPage({
                           <td className="py-2 pr-3 whitespace-nowrap">{weekday}</td>
                           <td className="py-2 pr-3 whitespace-nowrap">{fmtDate(r.date)}</td>
                           <td className="py-2 pr-3 whitespace-nowrap">
-                            {fmtTime(r.startTime)}-{fmtTime(r.endTime)}
+                            {r.startTime === "00:00" && r.endTime >= "23:59"
+                              ? "Hele dagen"
+                              : `${fmtTime(r.startTime)}-${fmtTime(r.endTime)}`}
                           </td>
                           <td className="py-2">
-                            <span className="font-medium">{r.who}</span>
+                            <span className="font-medium">{r.reason ?? r.who}</span>
+                            {r.reason && r.who && <span className="text-slate-500"> – aflyst: {r.who}</span>}
                             {r.facility !== r.hall && <span className="text-slate-500"> ({r.facility})</span>}
-                            {r.reason && <span className="text-slate-600"> – {r.reason}</span>}
                           </td>
                         </tr>
                       );
