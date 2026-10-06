@@ -193,6 +193,12 @@ export const bookings = sqliteTable("bookings", {
   // listen (fx "Håndboldkamp"). Begge nullable.
   cancelledAt: text("cancelled_at"),
   cancelReason: text("cancel_reason"),
+  // Aflysningslisten: når en forenings booking FLYTTES (anden facilitet/tid),
+  // huskes den oprindelige placering her, så listen kan vise "flyttet til ..."
+  // i stedet for "aflyst" på det oprindelige tidspunkt. Alle nullable.
+  movedFromFacilityId: text("moved_from_facility_id"),
+  movedFromStartsAt: text("moved_from_starts_at"),
+  movedFromEndsAt: text("moved_from_ends_at"),
   // Grupperer flere bookinger oprettet SAMTIDIG som én bestilling af
   // indbyrdes ombyttelige ressourcer (fx 2 pickleball-/badmintonbaner booket
   // på én gang via den offentlige portal, se bookableGroupLabel på

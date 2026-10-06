@@ -52,10 +52,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   // Rigtig aflysning (ikke silent) -> kommer på aflysningslisten (/aflysninger).
   const listCancellation = !silent && body.status === "aflyst" && existing.status !== "aflyst";
+  // Flytning af en foreningsbooking -> "flyttet til ..." på aflysningslisten.
+  // Den ORIGINALE placering huskes (første gang), og flyttes bookingen tilbage
+  // til den, fjernes markeringen igen.
+  let movedFields: Record<string, string | null> = {};
+  if (!silent && timeOrFacilityChanged && existing.organizationId && existing.status !== "aflyst" && existing.status !== "afvist" && body.status !== "aflyst") {
+    const baseFacility = existing.movedFromFacilityId ?? existing.facilityId;
+    const baseStart = existing.movedFromStartsAt ?? existing.startsAt;
+    const baseEnd = existing.movedFromEndsAt ?? existing.endsAt;
+    const backHome = nextFacilityId === baseFacility && nextStartsAt === baseStart && nextEndsAt === baseEnd;
+    movedFields = backHome
+      ? { movedFromFacilityId: null, movedFromStartsAt: null, movedFromEndsAt: null }
+      : { movedFromFacilityId: baseFacility, movedFromStartsAt: baseStart, movedFromEndsAt: baseEnd };
+  }
   await db
     .update(schema.bookings)
     .set({
       ...body,
+      ...movedFields,
       ...(listCancellation ? { cancelledAt: nowLocalDateTimeString() } : {}),
       updatedAt: new Date().toISOString(),
     })

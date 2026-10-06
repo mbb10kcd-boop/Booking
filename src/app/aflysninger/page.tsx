@@ -29,11 +29,11 @@ export default async function AflysningerPage({
 
   // Samme hal, dato, tid og årsag samles til én række, hvis flere foreninger
   // er berørt af samme begivenhed ("aflyst: A, B").
-  type Row = { key: string; hall: string; facility: string; date: string; startTime: string; endTime: string; reason: string | null; who: string[] };
+  type Row = { key: string; hall: string; facility: string; date: string; startTime: string; endTime: string; reason: string | null; movedTo: string | null; who: string[] };
   const merged = new Map<string, Row>();
   for (const r of items) {
-    const key = [r.hall, r.date, r.startTime, r.endTime, r.reason ?? ""].join("|");
-    const row = merged.get(key) ?? { key, hall: r.hall, facility: r.facility, date: r.date, startTime: r.startTime, endTime: r.endTime, reason: r.reason, who: [] };
+    const key = [r.hall, r.date, r.startTime, r.endTime, r.reason ?? "", r.movedTo ?? ""].join("|");
+    const row = merged.get(key) ?? { key, hall: r.hall, facility: r.facility, date: r.date, startTime: r.startTime, endTime: r.endTime, reason: r.reason, movedTo: r.movedTo, who: [] };
     if (r.who && !row.who.includes(r.who)) row.who.push(r.who);
     merged.set(key, row);
   }
@@ -78,7 +78,9 @@ export default async function AflysningerPage({
                             ) : (
                               <>
                                 <span className="font-medium">{r.who.join(", ")}</span>
-                                <span className="text-slate-600"> – aflyst</span>
+                                <span className="text-slate-600">
+                                  {r.movedTo ? ` – flyttet til ${r.movedTo}` : " – aflyst"}
+                                </span>
                               </>
                             )}
                             {r.facility !== r.hall && <span className="text-slate-500"> ({r.facility})</span>}
