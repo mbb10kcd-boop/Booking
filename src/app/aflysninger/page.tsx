@@ -27,8 +27,18 @@ export default async function AflysningerPage({
   const all = await loadCancelList();
   const items = hal ? all.filter((r) => r.hall.toLowerCase().includes(hal.toLowerCase())) : all;
 
-  const byHall = new Map<string, typeof items>();
+  // Samme hal, dato, tid og årsag samles til én række, hvis flere foreninger
+  // er berørt af samme begivenhed ("aflyst: A, B").
+  type Row = { key: string; hall: string; facility: string; date: string; startTime: string; endTime: string; reason: string | null; who: string[] };
+  const merged = new Map<string, Row>();
   for (const r of items) {
+    const key = [r.hall, r.date, r.startTime, r.endTime, r.reason ?? ""].join("|");
+    const row = merged.get(key) ?? { key, hall: r.hall, facility: r.facility, date: r.date, startTime: r.startTime, endTime: r.endTime, reason: r.reason, who: [] };
+    if (r.who && !row.who.includes(r.who)) row.who.push(r.who);
+    merged.set(key, row);
+  }
+  const byHall = new Map<string, Row[]>();
+  for (const r of merged.values()) {
     const list = byHall.get(r.hall) ?? [];
     list.push(r);
     byHall.set(r.hall, list);
@@ -51,7 +61,7 @@ export default async function AflysningerPage({
                     {byHall.get(h)!.map((r) => {
                       const weekday = weekdayName(new Date(`${r.date}T00:00:00`).getDay());
                       return (
-                        <tr key={r.id} className="border-b border-slate-200 align-top">
+                        <tr key={r.key} className="border-b border-slate-200 align-top">
                           <td className="py-2 pr-3 whitespace-nowrap">{weekday}</td>
                           <td className="py-2 pr-3 whitespace-nowrap">{fmtDate(r.date)}</td>
                           <td className="py-2 pr-3 whitespace-nowrap">
@@ -60,8 +70,17 @@ export default async function AflysningerPage({
                               : `${fmtTime(r.startTime)}-${fmtTime(r.endTime)}`}
                           </td>
                           <td className="py-2">
-                            <span className="font-medium">{r.reason ?? r.who}</span>
-                            {r.reason && r.who && <span className="text-slate-500"> – aflyst: {r.who}</span>}
+                            {r.reason ? (
+                              <>
+                                <span className="font-medium">{r.reason}</span>
+                                {r.who.length > 0 && <span className="text-slate-600"> – aflyst: {r.who.join(", ")}</span>}
+                              </>
+                            ) : (
+                              <>
+                                <span className="font-medium">{r.who.join(", ")}</span>
+                                <span className="text-slate-600"> – aflyst</span>
+                              </>
+                            )}
                             {r.facility !== r.hall && <span className="text-slate-500"> ({r.facility})</span>}
                           </td>
                         </tr>
