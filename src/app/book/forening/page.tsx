@@ -642,9 +642,8 @@ export default function ForeningBookingPortal() {
               <div>
                 <h2 className="font-semibold text-slate-900">&#9873; Markér vigtig/kamp</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Tryk på de tider, hvor I har kamp eller et vigtigt arrangement. Så kan vi se det med det samme, og
-                  tiden bliver ikke flyttet eller aflyst uden at vi har talt med jer. Tryk igen for at fjerne markeringen.
-                  Ændringen gemmes med det samme.
+                  Tryk på de tider, hvor I har kamp eller et vigtigt arrangement. Så kan vi se det med det samme i
+                  kalenderen. Tryk igen for at fjerne markeringen. Ændringen gemmes med det samme.
                 </p>
               </div>
 
