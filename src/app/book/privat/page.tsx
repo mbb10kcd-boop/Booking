@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { BookingDTO, FacilityDTO } from "@/lib/clientTypes";
-import { formatDaDate, formatDaTime } from "@/lib/ai/messages";
+import { formatDaDate, formatDaTime, capitalizeDaDate } from "@/lib/ai/messages";
 import { combineDateAndTime, localISODate, addDays, nowLocalDateTimeString } from "@/lib/date";
 
 type Step = "facilitet" | "tid" | "info" | "betaling" | "kvittering";
@@ -475,8 +475,10 @@ export default function PublicBookingPortal() {
               </div>
 
               <div>
-                <div className="text-sm font-medium text-slate-700 mb-2 capitalize">
-                  {new Date(`${date}T00:00:00`).toLocaleDateString("da-DK", { weekday: "long", day: "numeric", month: "long" })}
+                <div className="text-sm font-medium text-slate-700 mb-2">
+                  {capitalizeDaDate(
+                    new Date(`${date}T00:00:00`).toLocaleDateString("da-DK", { weekday: "long", day: "numeric", month: "long" })
+                  )}
                 </div>
                 {slotsError ? (
                   <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
@@ -499,6 +501,7 @@ export default function PublicBookingPortal() {
                       { title: "Aften", from: 17 * 60, to: 24 * 60 },
                     ].map((part) => {
                       const inPart = daySlots.filter((sl) => {
+                        if (sl.past) return false; // tider der allerede er gået vises slet ikke
                         const minutes = Number(sl.time.slice(0, 2)) * 60 + Number(sl.time.slice(3));
                         return minutes >= part.from && minutes < part.to;
                       });
@@ -524,7 +527,7 @@ export default function PublicBookingPortal() {
                                   }`}
                                 >
                                   <div className="text-sm font-medium">{sl.time}</div>
-                                  {isGroup && ok && (
+                                  {isGroup && ok && sl.free.length < groupMembers.length && (
                                     <div className={`text-[10px] ${isPicked ? "text-blue-100" : "text-emerald-600"}`}>
                                       {sl.free.length} ledige
                                     </div>
@@ -556,7 +559,9 @@ export default function PublicBookingPortal() {
               {pickedOk && (
                 <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
                   <div className="font-medium">
-                    {new Date(`${date}T00:00:00`).toLocaleDateString("da-DK", { weekday: "long", day: "numeric", month: "long" })}
+                    {capitalizeDaDate(
+                      new Date(`${date}T00:00:00`).toLocaleDateString("da-DK", { weekday: "long", day: "numeric", month: "long" })
+                    )}
                     {" · "}
                     {startTime}–{endTime}
                   </div>
