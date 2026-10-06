@@ -43,7 +43,31 @@ function isoDate(d: Date) {
   return `${year}-${month}-${day}`;
 }
 
+async function ensureColumns() {
+  // Sikkerhedsnet oven på "drizzle-kit push": sørger for at nyere NULLABLE
+  // kolonner findes, så en app-version aldrig starter mod en database der
+  // mangler dem (hvilket giver 500-fejl på alle sider der læser tabellen).
+  // Idempotent - tilføjer kun hvad der mangler.
+  const wanted: [string, string, string][] = [
+    ["reschedule_requests", "kind", "TEXT"],
+    ["reschedule_requests", "cancel_scope", "TEXT"],
+    ["reschedule_requests", "season_group_id", "TEXT"],
+    ["notification_log", "delivery_status", "TEXT"],
+    ["notification_log", "delivery_error", "TEXT"],
+    ["access_codes", "we_access_visit_id", "TEXT"],
+  ];
+  for (const [table, column, type] of wanted) {
+    const info = await sqlite.execute(`PRAGMA table_info(${table})`);
+    if (info.rows.length === 0) continue; // tabellen findes ikke endnu (push opretter den)
+    if (!info.rows.some((r) => r.name === column)) {
+      await sqlite.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+      console.log(`Tilføjede manglende kolonne ${table}.${column}`);
+    }
+  }
+}
+
 async function main() {
+  await ensureColumns();
   // SIKKERHEDSSPÆRRE: dette script sletter ALT eksisterende data før det
   // sår nyt (se DELETE-sætningerne nedenfor). Det er fint på en tom
   // udviklingsdatabase, men må aldrig køre ubetinget mod en database der
