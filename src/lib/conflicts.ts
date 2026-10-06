@@ -1,5 +1,6 @@
 import { db, schema } from "@/db";
-import { facilitiesConflict, facilitiesWarn, getAllFacilities } from "./facilities";
+import { and, gt, inArray, lt, notInArray } from "drizzle-orm";
+import { facilitiesConflict, facilitiesWarn, getAllFacilities, type Facility } from "./facilities";
 import { nowLocalDateTimeString } from "./date";
 
 export type Booking = typeof schema.bookings.$inferSelect;
@@ -8,6 +9,71 @@ const INACTIVE_STATUSES = new Set(["aflyst", "afvist"]);
 
 function overlaps(startA: string, endA: string, startB: string, endB: string): boolean {
   return startA < endB && startB < endA;
+}
+
+/**
+ * Henter KUN de aktive bookinger der overlapper [from, to) og ligger på en af
+ * de angivne faciliteter - filtreret i databasen. (Tidligere hentes ALLE
+ * bookinger og filtreres i JavaScript, hvilket blev langsomt, da databasen
+ * ligger på nettet og bookingerne nu tæller over tusind rækker - og et
+ * sæsonbooking-tjek gjorde det én gang pr. uge.)
+ */
+export async function loadActiveBookingsBetween(from: string, to: string, facilityIds?: string[]): Promise<Booking[]> {
+  if (facilityIds && facilityIds.length === 0) return [];
+  return db
+    .select()
+    .from(schema.bookings)
+    .where(
+      and(
+        lt(schema.bookings.startsAt, to),
+        gt(schema.bookings.endsAt, from),
+        notInArray(schema.bookings.status, ["aflyst", "afvist"]),
+        facilityIds ? inArray(schema.bookings.facilityId, facilityIds) : undefined
+      )
+    );
+}
+
+/** Id'er på alle faciliteter der kan konflikte med ELLER give en bemærkning for `facilityId` (inkl. sig selv). */
+export function relatedFacilityIds(facilityId: string, facilities: Facility[]): string[] {
+  return facilities
+    .filter((f) => facilitiesConflict(facilityId, f.id, facilities) || facilitiesWarn(facilityId, f.id, facilities))
+    .map((f) => f.id);
+}
+
+/** Ren funktion: konflikter blandt allerede indlæste bookinger. */
+export function conflictsAmong(
+  rows: Booking[],
+  facilities: Facility[],
+  facilityId: string,
+  startsAt: string,
+  endsAt: string,
+  excludeBookingId?: string
+): Booking[] {
+  return rows.filter(
+    (b) =>
+      !INACTIVE_STATUSES.has(b.status) &&
+      (!excludeBookingId || b.id !== excludeBookingId) &&
+      overlaps(startsAt, endsAt, b.startsAt, b.endsAt) &&
+      facilitiesConflict(facilityId, b.facilityId, facilities)
+  );
+}
+
+/** Ren funktion: bemærkninger (løst koblede faciliteter) blandt allerede indlæste bookinger. */
+export function warningsAmong(
+  rows: Booking[],
+  facilities: Facility[],
+  facilityId: string,
+  startsAt: string,
+  endsAt: string,
+  excludeBookingId?: string
+): Booking[] {
+  return rows.filter(
+    (b) =>
+      !INACTIVE_STATUSES.has(b.status) &&
+      (!excludeBookingId || b.id !== excludeBookingId) &&
+      overlaps(startsAt, endsAt, b.startsAt, b.endsAt) &&
+      facilitiesWarn(facilityId, b.facilityId, facilities)
+  );
 }
 
 /**
@@ -21,16 +87,8 @@ export async function findConflicts(
   excludeBookingId?: string
 ): Promise<Booking[]> {
   const facilities = await getAllFacilities();
-
-  const all = await db.select().from(schema.bookings);
-  const allActive = all.filter(
-    (b) => !INACTIVE_STATUSES.has(b.status) && (!excludeBookingId || b.id !== excludeBookingId)
-  );
-
-  return allActive.filter((b) => {
-    if (!overlaps(startsAt, endsAt, b.startsAt, b.endsAt)) return false;
-    return facilitiesConflict(facilityId, b.facilityId, facilities);
-  });
+  const rows = await loadActiveBookingsBetween(startsAt, endsAt, relatedFacilityIds(facilityId, facilities));
+  return conflictsAmong(rows, facilities, facilityId, startsAt, endsAt, excludeBookingId);
 }
 
 /**
@@ -47,16 +105,8 @@ export async function findWarnings(
   excludeBookingId?: string
 ): Promise<Booking[]> {
   const facilities = await getAllFacilities();
-
-  const all = await db.select().from(schema.bookings);
-  const allActive = all.filter(
-    (b) => !INACTIVE_STATUSES.has(b.status) && (!excludeBookingId || b.id !== excludeBookingId)
-  );
-
-  return allActive.filter((b) => {
-    if (!overlaps(startsAt, endsAt, b.startsAt, b.endsAt)) return false;
-    return facilitiesWarn(facilityId, b.facilityId, facilities);
-  });
+  const rows = await loadActiveBookingsBetween(startsAt, endsAt, relatedFacilityIds(facilityId, facilities));
+  return warningsAmong(rows, facilities, facilityId, startsAt, endsAt, excludeBookingId);
 }
 
 export async function hasConflict(

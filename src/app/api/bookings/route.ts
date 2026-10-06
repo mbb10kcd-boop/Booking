@@ -12,10 +12,17 @@ export async function GET(req: NextRequest) {
   const from = searchParams.get("from");
   const to = searchParams.get("to");
 
-  let rows = await db.select().from(schema.bookings);
-
-  if (from) rows = rows.filter((b) => b.endsAt >= from);
-  if (to) rows = rows.filter((b) => b.startsAt <= to);
+  // Filtreres i databasen (ikke i JavaScript) - en uge i kalenderen er ~100
+  // rækker, mens hele tabellen er over tusind.
+  const rows = await db
+    .select()
+    .from(schema.bookings)
+    .where(
+      and(
+        from ? gte(schema.bookings.endsAt, from) : undefined,
+        to ? lte(schema.bookings.startsAt, to) : undefined
+      )
+    );
 
   return NextResponse.json(rows);
 }

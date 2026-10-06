@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core";
 import { relations, sql } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
@@ -202,7 +202,11 @@ export const bookings = sqliteTable("bookings", {
   createdBy: text("created_by"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`),
-});
+}, (t) => [
+  // Indekser til de hyppige tidsinterval-opslag (kalender, konflikttjek) - se src/lib/conflicts.ts.
+  index("bookings_starts_at_idx").on(t.startsAt),
+  index("bookings_facility_starts_idx").on(t.facilityId, t.startsAt),
+]);
 
 export const bookingsRelations = relations(bookings, ({ one }) => ({
   facility: one(facilities, {

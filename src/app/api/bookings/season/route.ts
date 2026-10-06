@@ -3,7 +3,8 @@ import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
-import { findConflicts, findWarnings } from "@/lib/conflicts";
+import { conflictsAmong, loadActiveBookingsBetween, relatedFacilityIds, warningsAmong } from "@/lib/conflicts";
+import { getAllFacilities } from "@/lib/facilities";
 import { seasonConfirmationMessage } from "@/lib/ai/messages";
 import { weeklyOccurrenceDates } from "@/lib/date";
 import { sendNotification } from "@/lib/mailer";
@@ -42,9 +43,19 @@ export async function POST(req: NextRequest) {
 
   // Tjek konflikt for ALLE forekomster først, så brugeren kan se dem samlet
   // på én gang i stedet for at støde ind i dem én uge ad gangen.
-  const conflictsByDate: Record<string, Awaited<ReturnType<typeof findConflicts>>> = {};
+  // Performance: faciliteter og relevante bookinger hentes ÉN gang for hele
+  // sæsonen, og alle forekomster tjekkes i hukommelsen - i stedet for to
+  // databasekald (der hver hentede ALLE bookinger) pr. uge.
+  const facilities = await getAllFacilities();
+  const seasonRows = await loadActiveBookingsBetween(
+    `${dates[0]}T${startTime}:00`,
+    `${dates[dates.length - 1]}T${endTime}:00`,
+    relatedFacilityIds(facilityId, facilities)
+  );
+  type BookingRow = (typeof seasonRows)[number];
+  const conflictsByDate: Record<string, BookingRow[]> = {};
   for (const date of dates) {
-    const conflicts = await findConflicts(facilityId, `${date}T${startTime}:00`, `${date}T${endTime}:00`);
+    const conflicts = conflictsAmong(seasonRows, facilities, facilityId, `${date}T${startTime}:00`, `${date}T${endTime}:00`);
     if (conflicts.length > 0) conflictsByDate[date] = conflicts;
   }
   if (Object.keys(conflictsByDate).length > 0 && !force) {
@@ -65,9 +76,10 @@ export async function POST(req: NextRequest) {
   const recurrenceRule = { freq: "weekly" as const, weekday, until };
   const createdBookingIds: string[] = [];
 
-  for (const date of dates) {
+  const rowsToInsert = dates.map((date) => {
     const id = newId("book");
-    await db.insert(schema.bookings).values({
+    createdBookingIds.push(id);
+    return {
       id,
       facilityId,
       organizationId: body.organizationId ?? null,
@@ -84,8 +96,11 @@ export async function POST(req: NextRequest) {
       notes: body.notes ?? null,
       source: body.source ?? "manuel",
       createdBy: body.createdBy ?? "Medarbejder",
-    });
-    createdBookingIds.push(id);
+    };
+  });
+  // Indsæt i klumper (ét databasekald pr. klump i stedet for ét pr. uge).
+  for (let i = 0; i < rowsToInsert.length; i += 25) {
+    await db.insert(schema.bookings).values(rowsToInsert.slice(i, i + 25));
   }
   await logAudit(
     "booking",
@@ -120,9 +135,9 @@ export async function POST(req: NextRequest) {
 
   // Løst koblede faciliteter (fx klatrevæg/opvisningshal) blokerer ikke,
   // men flages pr. dato som en bemærkning til den der booker.
-  const warningsByDate: Record<string, Awaited<ReturnType<typeof findWarnings>>> = {};
+  const warningsByDate: Record<string, BookingRow[]> = {};
   for (const date of dates) {
-    const warnings = await findWarnings(facilityId, `${date}T${startTime}:00`, `${date}T${endTime}:00`);
+    const warnings = warningsAmong(seasonRows, facilities, facilityId, `${date}T${startTime}:00`, `${date}T${endTime}:00`);
     if (warnings.length > 0) warningsByDate[date] = warnings;
   }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
+import { invalidateFacilitiesCache } from "@/lib/facilities";
 import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
 
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
     sortOrder: body.sortOrder ?? 0,
   };
   await db.insert(schema.facilities).values(facility);
+  invalidateFacilitiesCache();
   await logAudit("facility", id, "oprettet", `Facilitet "${facility.name}" oprettet`);
   return NextResponse.json(facility, { status: 201 });
 }

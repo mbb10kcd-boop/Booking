@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
+import { and, gt, lt } from "drizzle-orm";
 
 const INACTIVE_STATUSES = new Set(["aflyst", "afvist"]);
 
@@ -22,7 +23,10 @@ export async function GET(req: NextRequest) {
   }
   const facilityIds = new Set(facilityIdsParam.split(","));
 
-  const rows = await db.select().from(schema.bookings);
+  const rows = await db
+    .select()
+    .from(schema.bookings)
+    .where(and(gt(schema.bookings.endsAt, from), lt(schema.bookings.startsAt, to)));
   const busy = rows
     .filter((b) => facilityIds.has(b.facilityId))
     .filter((b) => !INACTIVE_STATUSES.has(b.status))

@@ -3,8 +3,21 @@ import { eq } from "drizzle-orm";
 
 export type Facility = typeof schema.facilities.$inferSelect;
 
+// Faciliteter ændrer sig sjældent, men læses mange gange pr. forespørgsel (ét
+// konflikttjek pr. ugentlig forekomst ved sæsonbookinger m.m.). En helt kort
+// cache sparer en rundtur til databasen hver gang - se `invalidateFacilitiesCache`.
+let facilitiesCache: { at: number; rows: Facility[] } | null = null;
+const FACILITIES_TTL_MS = 10_000;
+
+export function invalidateFacilitiesCache() {
+  facilitiesCache = null;
+}
+
 export async function getAllFacilities(): Promise<Facility[]> {
-  return db.select().from(schema.facilities).orderBy(schema.facilities.sortOrder);
+  if (facilitiesCache && Date.now() - facilitiesCache.at < FACILITIES_TTL_MS) return facilitiesCache.rows;
+  const rows = await db.select().from(schema.facilities).orderBy(schema.facilities.sortOrder);
+  facilitiesCache = { at: Date.now(), rows };
+  return rows;
 }
 
 /** Bygger facilitet-id -> forældre-id map, til hurtige opslag */
