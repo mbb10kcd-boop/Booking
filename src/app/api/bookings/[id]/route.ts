@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
+import { nowLocalDateTimeString } from "@/lib/date";
 import { logAudit } from "@/lib/audit";
 import { findConflicts, findWarnings } from "@/lib/conflicts";
 import { notifyCancellation, notifyMove } from "@/lib/notifications";
@@ -49,9 +50,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     ? await findWarnings(nextFacilityId, nextStartsAt, nextEndsAt, id)
     : [];
 
+  // Rigtig aflysning (ikke silent) -> kommer på aflysningslisten (/aflysninger).
+  const listCancellation = !silent && body.status === "aflyst" && existing.status !== "aflyst";
   await db
     .update(schema.bookings)
-    .set({ ...body, updatedAt: new Date().toISOString() })
+    .set({
+      ...body,
+      ...(listCancellation ? { cancelledAt: nowLocalDateTimeString() } : {}),
+      updatedAt: new Date().toISOString(),
+    })
     .where(eq(schema.bookings.id, id));
 
   // Tid og/eller facilitet ændret: en evt. eksisterende adgangskode gælder
@@ -96,12 +103,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   return NextResponse.json({ ...updated, warnings });
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const { reason } = (await req.json().catch(() => ({}))) as { reason?: string };
   const [existing] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, id));
   if (!existing) return NextResponse.json({ error: "Ikke fundet" }, { status: 404 });
 
-  await db.update(schema.bookings).set({ status: "aflyst" }).where(eq(schema.bookings.id, id));
+  await db
+    .update(schema.bookings)
+    .set({
+      status: "aflyst",
+      ...(existing.status !== "aflyst" ? { cancelledAt: nowLocalDateTimeString(), cancelReason: reason?.trim() || null } : {}),
+    })
+    .where(eq(schema.bookings.id, id));
   await logAudit("booking", id, "aflyst");
   await revokeAccessCodesForBooking(id);
 

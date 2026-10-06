@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
 import { logAudit } from "@/lib/audit";
-import { localISODate } from "@/lib/date";
+import { localISODate, nowLocalDateTimeString } from "@/lib/date";
 import { seasonCancellationMessage } from "@/lib/ai/messages";
 import { newId } from "@/lib/ids";
 import { resolveNotificationRecipients } from "@/lib/notifications";
@@ -15,8 +15,10 @@ import { sendNotification } from "@/lib/mailer";
  * for sig i kalenderen. Allerede overståede forekomster (før i dag) røres
  * ikke, så bookinghistorikken for sæsonen forbliver intakt.
  */
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ seasonGroupId: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ seasonGroupId: string }> }) {
   const { seasonGroupId } = await params;
+  const { reason } = (await req.json().catch(() => ({}))) as { reason?: string };
+  const cancelledAt = nowLocalDateTimeString();
   const rows = await db.select().from(schema.bookings).where(eq(schema.bookings.seasonGroupId, seasonGroupId));
   if (rows.length === 0) return NextResponse.json({ error: "Ikke fundet" }, { status: 404 });
 
@@ -26,7 +28,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 
   for (const booking of toCancel) {
-    await db.update(schema.bookings).set({ status: "aflyst" }).where(eq(schema.bookings.id, booking.id));
+    await db.update(schema.bookings).set({ status: "aflyst", cancelledAt, cancelReason: reason?.trim() || null }).where(eq(schema.bookings.id, booking.id));
     await logAudit("booking", booking.id, "aflyst", "Aflyst som del af hele sæsonen");
   }
 

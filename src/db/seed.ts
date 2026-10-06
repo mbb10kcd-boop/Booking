@@ -55,6 +55,8 @@ async function ensureColumns() {
     ["notification_log", "delivery_status", "TEXT"],
     ["notification_log", "delivery_error", "TEXT"],
     ["access_codes", "we_access_visit_id", "TEXT"],
+    ["bookings", "cancelled_at", "TEXT"],
+    ["bookings", "cancel_reason", "TEXT"],
   ];
   for (const [table, column, type] of wanted) {
     const info = await sqlite.execute(`PRAGMA table_info(${table})`);

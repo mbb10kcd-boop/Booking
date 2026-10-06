@@ -5,7 +5,7 @@ import { newId } from "./ids";
 import { logAudit } from "./audit";
 import { findConflicts } from "./conflicts";
 import { displacedBookingMessage, rejectionMessage } from "./ai/messages";
-import { localISODate } from "./date";
+import { localISODate, nowLocalDateTimeString } from "./date";
 import { sendNotification } from "@/lib/mailer";
 
 type RequestLine = typeof schema.bookingRequestLines.$inferSelect;
@@ -69,7 +69,7 @@ export async function approveLine(lineId: string, overtake: boolean, actorName =
       }
       // Overtag: aflys eksisterende og generer besked
       for (const existing of conflicts) {
-        await db.update(schema.bookings).set({ status: "aflyst" }).where(eq(schema.bookings.id, existing.id));
+        await db.update(schema.bookings).set({ status: "aflyst", cancelledAt: nowLocalDateTimeString() }).where(eq(schema.bookings.id, existing.id));
         await revokeAccessCodesForBooking(existing.id);
         result.cancelledExistingBookingIds.push(existing.id);
         const [facility] = await db.select().from(schema.facilities).where(eq(schema.facilities.id, existing.facilityId));

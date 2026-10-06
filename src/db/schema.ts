@@ -187,6 +187,12 @@ export const bookings = sqliteTable("bookings", {
   // sæson som helhed, da det typisk kun er ÉN bestemt uge der bliver en
   // kampdag. Se IMPORTANT_ACCENT_CLASS/IMPORTANT_BADGE_* i statusLabels.ts.
   important: integer("important", { mode: "boolean" }).default(false),
+  // Aflysningslisten på hjemmesiden (/aflysninger): sættes når personalet
+  // aflyser en booking UDEN "silent" (dvs. en rigtig aflysning, ikke
+  // oprydning af demodata). cancelReason er en valgfri tekst der vises på
+  // listen (fx "Håndboldkamp"). Begge nullable.
+  cancelledAt: text("cancelled_at"),
+  cancelReason: text("cancel_reason"),
   // Grupperer flere bookinger oprettet SAMTIDIG som én bestilling af
   // indbyrdes ombyttelige ressourcer (fx 2 pickleball-/badmintonbaner booket
   // på én gang via den offentlige portal, se bookableGroupLabel på

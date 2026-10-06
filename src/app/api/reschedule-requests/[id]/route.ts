@@ -13,7 +13,7 @@ import {
   formatDaDate,
 } from "@/lib/ai/messages";
 import { weekdayName } from "@/lib/statusLabels";
-import { localISODate } from "@/lib/date";
+import { localISODate, nowLocalDateTimeString } from "@/lib/date";
 import { notifyCancellation } from "@/lib/notifications";
 import { sendNotification } from "@/lib/mailer";
 
@@ -91,7 +91,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       (b) => b.status !== "aflyst" && b.status !== "afvist" && b.startsAt.slice(0, 10) >= todayStr
     );
     for (const b of toCancel) {
-      await db.update(schema.bookings).set({ status: "aflyst", updatedAt: new Date().toISOString() }).where(eq(schema.bookings.id, b.id));
+      await db.update(schema.bookings).set({ status: "aflyst", cancelledAt: nowLocalDateTimeString(), updatedAt: new Date().toISOString() }).where(eq(schema.bookings.id, b.id));
       await logAudit("booking", b.id, "aflyst", `Aflyst efter anmodning fra ${org.name}`, "Personalet");
     }
     await revokeAccessCodesForBookings(toCancel.map((b) => b.id));
@@ -169,7 +169,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!existing || existing.status === "aflyst") continue;
     await db
       .update(schema.bookings)
-      .set({ status: "aflyst", updatedAt: new Date().toISOString() })
+      .set({ status: "aflyst", cancelledAt: nowLocalDateTimeString(), updatedAt: new Date().toISOString() })
       .where(eq(schema.bookings.id, bookingId));
     await logAudit("booking", bookingId, "aflyst", `Aflyst for at imødekomme anmodning fra ${org.name}`, "Personalet");
     await revokeAccessCodesForBooking(bookingId);

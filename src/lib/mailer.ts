@@ -135,3 +135,22 @@ export async function sendNotification(values: NotificationInsert): Promise<void
     /* logning er best effort */
   }
 }
+
+/**
+ * Intern besked til personalet (fx når en forening har sendt en anmodning
+ * via portalen). Modtager: STAFF_NOTIFY_EMAIL (standard gic@grenaa-ic.dk).
+ * Kaster aldrig - en mailfejl må ikke vælte en anmodning.
+ */
+export async function notifyStaff(subject: string, text: string): Promise<void> {
+  try {
+    const to = firstToken(process.env.STAFF_NOTIFY_EMAIL) || "gic@grenaa-ic.dk";
+    const r = await sendMail({
+      to,
+      subject,
+      text: `${text}\n\nSe og behandl under Anmodninger: https://booking.grenaaic.dk/anmodninger`,
+    });
+    if (!r.ok) console.error("notifyStaff fejlede:", r.error);
+  } catch (e) {
+    console.error("notifyStaff fejlede:", e);
+  }
+}

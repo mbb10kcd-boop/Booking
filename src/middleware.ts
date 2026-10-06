@@ -4,13 +4,13 @@ import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/session";
 // Sider der IKKE kræver login: den offentlige bookingportal (foreninger og
 // privatpersoner), de fysiske infoskærme (ingen logger ind på dem - de
 // hænger bare på væggen), og selve login-siden.
-const PUBLIC_PAGE_PREFIXES = ["/login", "/book", "/skaerm"];
+const PUBLIC_PAGE_PREFIXES = ["/login", "/book", "/skaerm", "/aflysninger"];
 
 // API-endpoints den offentlige portal og infoskærmene selv kalder, og som
 // derfor skal virke uden en indlogget session. Alt andet under /api/ kræver
 // login som udgangspunkt (deny-by-default er sikrere end at forsøge at
 // opremse alle de interne endpoints, der SKAL beskyttes).
-const PUBLIC_API_PREFIXES = ["/api/auth/", "/api/portal/"];
+const PUBLIC_API_PREFIXES = ["/api/auth/", "/api/portal/", "/api/public/"];
 
 function isPublicApiPath(pathname: string, method: string): boolean {
   if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p))) return true;

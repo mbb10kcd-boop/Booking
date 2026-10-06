@@ -1,3 +1,4 @@
+import { notifyStaff } from "@/lib/mailer";
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
 import { eq, and, ne, or, isNull } from "drizzle-orm";
@@ -56,6 +57,11 @@ export async function POST(req: NextRequest) {
     status: "afventer_godkendelse",
   });
   await logAudit("organization", id, "oprettet", `Forening "${name}" oprettet via foreningsportalen - afventer godkendelse`, contactName);
+
+  await notifyStaff(
+    `Ny forening afventer godkendelse: ${name}`,
+    `Foreningen "${name}" har oprettet sig via bookingportalen og afventer godkendelse.\nKontaktperson: ${contactName} (${contactEmail}${contactPhone ? `, ${contactPhone}` : ""})`
+  );
 
   return NextResponse.json({ id, name, status: "afventer_godkendelse" }, { status: 201 });
 }

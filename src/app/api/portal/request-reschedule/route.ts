@@ -1,3 +1,4 @@
+import { notifyStaff } from "@/lib/mailer";
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
 import { eq, inArray } from "drizzle-orm";
@@ -70,6 +71,11 @@ export async function POST(req: NextRequest) {
     status: "afventer",
   });
   await logAudit("reschedule_request", id, "oprettet", `Anmodning fra ${org.name} via foreningsportalen`, org.name);
+
+  await notifyStaff(
+    `Ny anmodning fra ${org.name}: ønsker en optaget tid`,
+    `${org.name} har via portalen bedt om en tid, der allerede er booket (${startsAt.slice(0, 10)} kl. ${startsAt.slice(11, 16)}-${endsAt.slice(11, 16)}). ${conflictingIds.size} eksisterende booking(er) skal flyttes eller aflyses for at imødekomme den.${notes ? `\nBesked: ${notes}` : ""}`
+  );
 
   return NextResponse.json({ id, status: "afventer" }, { status: 201 });
 }

@@ -368,16 +368,28 @@ export function CalendarClient({
   async function quickCancelBooking(booking: BookingDTO) {
     const label = booking.seasonGroupId ? "denne dags forekomst af" : "";
     if (!window.confirm(`Aflys ${label} "${booking.title}"?`.replace("  ", " "))) return;
+    const reason = window.prompt("Årsag (vises på aflysningslisten på hjemmesiden - kan stå tom):", "");
+    if (reason === null) return;
     setContextMenu(null);
-    await fetch(`/api/bookings/${booking.id}`, { method: "DELETE" });
+    await fetch(`/api/bookings/${booking.id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
     loadBookings();
   }
 
   async function quickCancelSeason(booking: BookingDTO) {
     if (!booking.seasonGroupId) return;
     if (!window.confirm(`Aflys HELE sæsonen "${booking.title}" (alle kommende forekomster)?`)) return;
+    const reason = window.prompt("Årsag (vises på aflysningslisten på hjemmesiden - kan stå tom):", "");
+    if (reason === null) return;
     setContextMenu(null);
-    await fetch(`/api/bookings/season/${booking.seasonGroupId}`, { method: "DELETE" });
+    await fetch(`/api/bookings/season/${booking.seasonGroupId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
     loadBookings();
   }
 
@@ -2543,16 +2555,28 @@ function BookingDetail({
   }
 
   async function cancelBooking() {
+    const reason = window.prompt("Årsag (vises på aflysningslisten på hjemmesiden - kan stå tom):", "");
+    if (reason === null) return;
     setBusy(true);
-    await fetch(`/api/bookings/${booking.id}`, { method: "DELETE" });
+    await fetch(`/api/bookings/${booking.id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
     setBusy(false);
     onChanged();
   }
 
   /** Aflyser alle KOMMENDE forekomster af sæsonen på én gang (se /api/bookings/season/[seasonGroupId]) - ikke kun den her viste dag. */
   async function cancelSeason() {
+    const reason = window.prompt("Årsag (vises på aflysningslisten på hjemmesiden - kan stå tom):", "");
+    if (reason === null) return;
     setSeasonBusy(true);
-    await fetch(`/api/bookings/season/${booking.seasonGroupId}`, { method: "DELETE" });
+    await fetch(`/api/bookings/season/${booking.seasonGroupId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
     setSeasonBusy(false);
     onChanged();
   }

@@ -1,3 +1,4 @@
+import { notifyStaff } from "@/lib/mailer";
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
 import { and, eq } from "drizzle-orm";
@@ -92,6 +93,11 @@ export async function POST(req: NextRequest) {
     "oprettet",
     `Anmodning om aflysning af ${affected.length} booking(er) fra ${org.name} via foreningsportalen`,
     org.name
+  );
+
+  await notifyStaff(
+    `Ny anmodning fra ${org.name}: aflysning`,
+    `${org.name} har via portalen anmodet om at aflyse ${affected.length} booking(er) (${first.startsAt.slice(0, 10)}${affected.length > 1 ? ` til ${affected[affected.length - 1].startsAt.slice(0, 10)}` : ""}).${body.notes ? `\nBesked: ${body.notes}` : ""}`
   );
 
   return NextResponse.json({ id, status: "afventer", count: affected.length }, { status: 201 });
