@@ -21,7 +21,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   // "force" er kun et signal til konflikttjekket herunder, ikke en kolonne i
   // bookings-tabellen - fjernes fra `body`, inden den bruges til `.set()`.
-  const { force, ...body } = await req.json();
+  // "silent" undertrykker aflysnings-/flyttemails (bruges fx til at rydde gamle
+  // demobookinger op uden at forvirre foreninger) - heller ikke en kolonne.
+  const { force, silent, ...body } = await req.json();
   const [existing] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, id));
   if (!existing) return NextResponse.json({ error: "Ikke fundet" }, { status: 404 });
 
@@ -83,7 +85,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   // Kun send aflysningsmail hvis den rent faktisk lige er blevet aflyst
   // (ikke hvis den allerede var aflyst - undgår dobbelt-besked).
-  if (body.status === "aflyst" && existing.status !== "aflyst") {
+  if (silent) {
+    // ingen mails
+  } else if (body.status === "aflyst" && existing.status !== "aflyst") {
     await notifyCancellation({ ...existing, ...body });
   } else if (timeOrFacilityChanged && updated && updated.status !== "aflyst") {
     await notifyMove(updated);
