@@ -1,10 +1,13 @@
 import { db, schema } from "@/db";
 import { asc, eq, ne, and, gte } from "drizzle-orm";
 import { PageHeader } from "@/components/PageHeader";
+import { isWeAccessEnabled } from "@/lib/weaccess";
 
 export const dynamic = "force-dynamic";
 
 const DOOR_LABELS: Record<string, string> = {
+  "25577710": "Træningshallen",
+  "22399612": "Indgangen ved Multisalen",
   traeningshallen: "Træningshallen",
   multisalen: "Multisalen",
 };
@@ -51,12 +54,20 @@ export default async function DoerkoderPage() {
         subtitle="Faste koder der skal tastes direkte ind i den fysiske kodelås - se forklaring nedenfor"
       />
       <div className="p-4 md:p-8 max-w-4xl space-y-8">
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Der findes p.t. ingen brugbar API til automatisk at sende nye koder til dørene (hverken via WeAccess eller
-          andre undersøgte fabrikater). Løsningen er derfor et fast sæt på 20 koder pr. kodedør, som skal tastes ind
-          i selve låsen/kodetastaturet ÉN gang. Herefter styrer systemet selv, hvem der får hvilken kode hvornår - en
-          kode genbruges automatisk, når den ikke er i brug af en anden aktiv booking i et overlappende tidsrum.
-        </div>
+        {isWeAccessEnabled() ? (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+            Dørkoderne oprettes automatisk i WeAccess: når en privatperson booker (og betaler), får bookingen en
+            tidsbegrænset kode direkte på låsen, som flyttes med bookingen og spærres ved aflysning. Den faste
+            kodepulje nedenfor er kun en reserve og bruges ikke, så længe forbindelsen til WeAccess er slået til.
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            Forbindelsen til WeAccess er ikke slået til (WEACCESS_API_KEY mangler på serveren), så systemet bruger et
+            fast sæt på 20 koder pr. kodedør, som skal tastes ind i selve låsen/kodetastaturet ÉN gang. Herefter
+            styrer systemet selv, hvem der får hvilken kode hvornår - en kode genbruges automatisk, når den ikke er i
+            brug af en anden aktiv booking i et overlappende tidsrum.
+          </div>
+        )}
 
         {doorIds.map((doorId) => {
           const codes = pool.filter((p) => p.doorId === doorId);
