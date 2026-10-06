@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { revokeAccessCodesForBooking } from "@/lib/accessCodes";
+import { revokeAccessCodesForBooking, revokeAccessCodesForBookings } from "@/lib/accessCodes";
 import { db, schema } from "@/db";
 import { eq, inArray } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { findConflicts } from "@/lib/conflicts";
 import { logAudit } from "@/lib/audit";
-import { foreningBookingConfirmationMessage, rescheduleRejectedMessage } from "@/lib/ai/messages";
+import {
+  foreningBookingConfirmationMessage,
+  rescheduleRejectedMessage,
+  cancellationRequestApprovedMessage,
+  cancellationRequestRejectedMessage,
+  formatDaDate,
+} from "@/lib/ai/messages";
+import { weekdayName } from "@/lib/statusLabels";
+import { localISODate } from "@/lib/date";
 import { notifyCancellation } from "@/lib/notifications";
 import { sendNotification } from "@/lib/mailer";
 
@@ -41,6 +49,85 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!org) return NextResponse.json({ error: "Foreningen findes ikke længere" }, { status: 404 });
 
   const facilities = await db.select().from(schema.facilities).where(inArray(schema.facilities.id, request.facilityIds));
+
+  // --- Anmodning om AFLYSNING (kind = "aflysning"): se /api/portal/request-cancellation ---
+  if (request.kind === "aflysning") {
+    const bookingRows = request.conflictingBookingIds.length
+      ? await db.select().from(schema.bookings).where(inArray(schema.bookings.id, request.conflictingBookingIds))
+      : [];
+    bookingRows.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    const sample = bookingRows[0];
+    const isSeason = !!request.seasonGroupId;
+    const description = !sample
+      ? "den valgte booking"
+      : isSeason && request.cancelScope !== "enkelt"
+        ? `Hver ${weekdayName(new Date(`${sample.startsAt.slice(0, 10)}T00:00:00`).getDay()).toLowerCase()} kl. ${sample.startsAt.slice(11, 16).replace(":", ".")}-${sample.endsAt.slice(11, 16).replace(":", ".")}`
+        : `${formatDaDate(sample.startsAt)} kl. ${sample.startsAt.slice(11, 16).replace(":", ".")}-${sample.endsAt.slice(11, 16).replace(":", ".")}`;
+    const facilityName = facilities[0]?.name ?? "faciliteten";
+    const recipients = Array.from(new Set([org.contactEmail, request.extraEmail].filter((r): r is string => !!r)));
+
+    if (status === "afvist") {
+      await db
+        .update(schema.rescheduleRequests)
+        .set({ status: "afvist", decidedAt: new Date().toISOString() })
+        .where(eq(schema.rescheduleRequests.id, id));
+      await logAudit("reschedule_request", id, "afvist", "Anmodning om aflysning afvist", "Personalet");
+      for (const recipient of recipients) {
+        await sendNotification({
+          id: newId("notif"),
+          bookingId: null,
+          type: "afvisning",
+          recipient,
+          subject: "Jeres anmodning om aflysning er afvist",
+          body: cancellationRequestRejectedMessage({ organizationName: org.name, facilityName, description }),
+        });
+      }
+      return NextResponse.json({ id, status: "afvist" });
+    }
+
+    // Godkendt: aflys de bookinger der stadig er aktive og ikke ligger i fortiden.
+    const todayStr = localISODate();
+    const toCancel = bookingRows.filter(
+      (b) => b.status !== "aflyst" && b.status !== "afvist" && b.startsAt.slice(0, 10) >= todayStr
+    );
+    for (const b of toCancel) {
+      await db.update(schema.bookings).set({ status: "aflyst", updatedAt: new Date().toISOString() }).where(eq(schema.bookings.id, b.id));
+      await logAudit("booking", b.id, "aflyst", `Aflyst efter anmodning fra ${org.name}`, "Personalet");
+    }
+    await revokeAccessCodesForBookings(toCancel.map((b) => b.id));
+
+    const scopeText =
+      !isSeason
+        ? "denne booking"
+        : request.cancelScope === "alt"
+          ? "hele resten af sæsonen"
+          : request.cancelScope === "fra_dato" && toCancel[0]
+            ? `fra og med ${formatDaDate(toCancel[0].startsAt)}`
+            : "kun den valgte dato";
+    // ÉN samlet mail uanset hvor mange forekomster der aflyses (ikke én pr. uge).
+    for (const recipient of recipients) {
+      await sendNotification({
+        id: newId("notif"),
+        bookingId: toCancel[0]?.id ?? null,
+        type: "aflysning",
+        recipient,
+        subject: "Jeres aflysning er godkendt",
+        body: cancellationRequestApprovedMessage({
+          organizationName: org.name,
+          facilityName,
+          description,
+          scopeText,
+          count: toCancel.length,
+        }),
+      });
+    }
+    await db
+      .update(schema.rescheduleRequests)
+      .set({ status: "godkendt", decidedAt: new Date().toISOString() })
+      .where(eq(schema.rescheduleRequests.id, id));
+    await logAudit("reschedule_request", id, "godkendt", `${toCancel.length} booking(er) aflyst`, "Personalet");
+    return NextResponse.json({ id, status: "godkendt", cancelledBookingIds: toCancel.map((b) => b.id) });
+  }
 
   if (status === "afvist") {
     await db

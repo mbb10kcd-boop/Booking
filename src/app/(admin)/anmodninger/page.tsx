@@ -34,6 +34,18 @@ export default async function AnmodningerPage() {
     notes: r.notes,
     extraEmail: r.extraEmail,
     createdAt: r.createdAt,
+    kind: (r.kind === "aflysning" ? "aflysning" : "tid") as "aflysning" | "tid",
+    cancelScope: r.cancelScope,
+    cancelCount: r.kind === "aflysning" ? r.conflictingBookingIds.length : 0,
+    cancelLastDate:
+      r.kind === "aflysning"
+        ? r.conflictingBookingIds
+            .map((bid) => bookingById.get(bid)?.startsAt.slice(0, 10) ?? "")
+            .filter(Boolean)
+            .sort()
+            .pop() ?? null
+        : null,
+    isSeasonCancel: r.kind === "aflysning" && !!r.seasonGroupId,
     conflictingBookings: r.conflictingBookingIds.map((bid) => {
       const b = bookingById.get(bid);
       return { id: bid, title: b?.title ?? "Ukendt booking (allerede fjernet)", status: b?.status ?? "ukendt" };
@@ -44,7 +56,7 @@ export default async function AnmodningerPage() {
     <div>
       <PageHeader
         title="Anmodninger"
-        subtitle="Foreninger der har bedt om en tid, der allerede er optaget af en anden forening"
+        subtitle="Foreninger der har bedt om en optaget tid, eller om at få en booking/sæson aflyst"
       />
       <RescheduleRequestsClient initialItems={items} />
     </div>

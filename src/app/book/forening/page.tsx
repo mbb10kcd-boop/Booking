@@ -2,15 +2,42 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { FacilityDTO } from "@/lib/clientTypes";
-import { formatDaDate, formatDaDateShort, formatDaTime } from "@/lib/ai/messages";
-import { addDays, combineDateAndTime, localISODate, roundTimeString, startOfWeek } from "@/lib/date";
-import { WheelStepInput } from "@/components/WheelStepInput";
+import { formatDaDate, capitalizeDaDate } from "@/lib/ai/messages";
+import { combineDateAndTime } from "@/lib/date";
+import { weekdayName } from "@/lib/statusLabels";
+import { SlotPicker, type SlotSelection } from "@/components/SlotPicker";
 
-type Step = "forening" | "opret" | "afventer" | "faciliteter" | "dato" | "info" | "kvittering";
+type Step =
+  | "forening"
+  | "opret"
+  | "afventer"
+  | "hvad"
+  | "faciliteter"
+  | "dato"
+  | "info"
+  | "kvittering"
+  | "aflys"
+  | "aflys_kvittering";
+
+type SeriesItem = {
+  seasonGroupId: string;
+  facilityName: string;
+  weekday: number;
+  startTime: string;
+  endTime: string;
+  firstDate: string;
+  lastDate: string;
+  dates: string[];
+};
+type SingleItem = { id: string; facilityName: string; date: string; startTime: string; endTime: string };
+type CancelTarget = { type: "series"; series: SeriesItem } | { type: "single"; booking: SingleItem };
+
+const fmtTime = (t: string) => t.replace(":", ".");
+const fmtDay = (d: string) => capitalizeDaDate(formatDaDate(`${d}T00:00:00`));
+const fmtShort = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("da-DK", { day: "numeric", month: "short" }).replace(".", "");
 
 type OrgSummary = { id: string; name: string };
 type OrgDetail = { id: string; name: string; contactName: string | null; contactEmail: string | null };
-type BusyInterval = { facilityId: string; startsAt: string; endsAt: string };
 
 export default function ForeningBookingPortal() {
   const [step, setStep] = useState<Step>("forening");
@@ -34,14 +61,20 @@ export default function ForeningBookingPortal() {
   const [facilities, setFacilities] = useState<FacilityDTO[]>([]);
   const [selectedFacilityIds, setSelectedFacilityIds] = useState<Set<string>>(new Set());
 
-  // --- Trin 3: dato ---
-  const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(new Date()));
-  const [busyIntervals, setBusyIntervals] = useState<BusyInterval[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [startTime, setStartTime] = useState("18:00");
-  const [endTime, setEndTime] = useState("19:00");
-  const [availability, setAvailability] = useState<"ukendt" | "ledig" | "optaget">("ukendt");
-  const [busyFacilityNames, setBusyFacilityNames] = useState<string[]>([]);
+  // --- Trin 3: dato/tid (SlotPicker melder det aktuelle valg) ---
+  const [slot, setSlot] = useState<SlotSelection | null>(null);
+  const selectedDate = slot?.date ?? null;
+  const startTime = slot?.startTime ?? "";
+  const endTime = slot?.endTime ?? "";
+  const availability: "ukendt" | "ledig" | "optaget" = !slot ? "ukendt" : slot.occupied ? "optaget" : "ledig";
+
+  // --- Anmod om aflysning ---
+  const [orgBookings, setOrgBookings] = useState<{ series: SeriesItem[]; singles: SingleItem[] } | null>(null);
+  const [loadingOrgBookings, setLoadingOrgBookings] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
+  const [cancelScope, setCancelScope] = useState<"alt" | "fra_dato" | "enkelt">("alt");
+  const [cancelDate, setCancelDate] = useState("");
+  const [cancelNotes, setCancelNotes] = useState("");
 
   // --- Trin 4: info ---
   const [extraEmail, setExtraEmail] = useState("");
@@ -69,8 +102,6 @@ export default function ForeningBookingPortal() {
 
   const selectedFacilities = facilities.filter((f) => selectedFacilityIds.has(f.id));
 
-  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
-
   async function selectOrganization(id: string) {
     setError(null);
     const res = await fetch(`/api/portal/organizations/${id}`);
@@ -79,7 +110,7 @@ export default function ForeningBookingPortal() {
       return;
     }
     setSelectedOrg(await res.json());
-    setStep("faciliteter");
+    setStep("hvad");
   }
 
   async function createOrganization() {
@@ -119,60 +150,63 @@ export default function ForeningBookingPortal() {
     });
   }
 
-  async function loadWeekAvailability(start: Date) {
-    if (selectedFacilityIds.size === 0) return;
-    const from = localISODate(start);
-    const to = localISODate(addDays(start, 7));
-    const params = new URLSearchParams({
-      facilityIds: Array.from(selectedFacilityIds).join(","),
-      from: combineDateAndTime(from, "00:00"),
-      to: combineDateAndTime(to, "00:00"),
-    });
-    const res = await fetch(`/api/portal/availability?${params.toString()}`);
-    setBusyIntervals(await res.json());
+  async function openCancelStep() {
+    if (!selectedOrg) return;
+    setError(null);
+    setCancelTarget(null);
+    setStep("aflys");
+    setLoadingOrgBookings(true);
+    try {
+      const res = await fetch(`/api/portal/organizations/${selectedOrg.id}/bookings`);
+      if (!res.ok) throw new Error("fejl");
+      setOrgBookings(await res.json());
+    } catch {
+      setError("Kunne ikke hente jeres bookinger. Prøv igen.");
+      setOrgBookings({ series: [], singles: [] });
+    } finally {
+      setLoadingOrgBookings(false);
+    }
   }
 
-  useEffect(() => {
-    if (step === "dato") loadWeekAvailability(weekStart);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, weekStart, selectedFacilityIds]);
-
-  function busyRangesForDay(dateISO: string): string[] {
-    const ranges = busyIntervals
-      .filter((b) => b.startsAt.slice(0, 10) === dateISO || b.endsAt.slice(0, 10) === dateISO)
-      .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-    return ranges.map((r) => `${formatDaTime(r.startsAt)}-${formatDaTime(r.endsAt)}`);
+  function chooseCancelTarget(target: CancelTarget) {
+    setCancelTarget(target);
+    setCancelScope("alt");
+    setCancelDate(target.type === "series" ? target.series.dates[0] : "");
+    setError(null);
   }
 
-  function selectDay(dateISO: string) {
-    setSelectedDate(dateISO);
-    setAvailability("ukendt");
-    setBusyFacilityNames([]);
-  }
-
-  async function checkAvailability() {
-    if (!selectedDate || selectedFacilityIds.size === 0) return;
-    setAvailability("ukendt");
+  async function submitCancellation() {
+    if (!selectedOrg || !cancelTarget) return;
     setBusy(true);
-    const startsAt = combineDateAndTime(selectedDate, startTime);
-    const endsAt = combineDateAndTime(selectedDate, endTime);
-    const busyNames: string[] = [];
-    for (const facility of selectedFacilities) {
-      const res = await fetch("/api/bookings/check-conflict", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ facilityId: facility.id, startsAt, endsAt }),
-      });
-      const data = await res.json();
-      if (data.status !== "ledig") busyNames.push(facility.name);
-    }
+    setError(null);
+    const res = await fetch("/api/portal/request-cancellation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        cancelTarget.type === "series"
+          ? {
+              organizationId: selectedOrg.id,
+              seasonGroupId: cancelTarget.series.seasonGroupId,
+              scope: cancelScope,
+              fromDate: cancelScope === "fra_dato" ? cancelDate : undefined,
+              onlyDate: cancelScope === "enkelt" ? cancelDate : undefined,
+              notes: cancelNotes || undefined,
+            }
+          : {
+              organizationId: selectedOrg.id,
+              bookingId: cancelTarget.booking.id,
+              scope: "enkelt",
+              notes: cancelNotes || undefined,
+            }
+      ),
+    });
+    const data = await res.json().catch(() => ({}));
     setBusy(false);
-    if (busyNames.length > 0) {
-      setAvailability("optaget");
-      setBusyFacilityNames(busyNames);
-    } else {
-      setAvailability("ledig");
+    if (!res.ok) {
+      setError(data.error ?? "Der opstod en fejl.");
+      return;
     }
+    setStep("aflys_kvittering");
   }
 
   async function submitBooking() {
@@ -213,7 +247,15 @@ export default function ForeningBookingPortal() {
   }
 
   const stepOrder: Step[] = ["forening", "faciliteter", "dato", "info", "kvittering"];
-  const stepIndex = stepOrder.indexOf(step) >= 0 ? stepOrder.indexOf(step) : 0;
+  const stepIndexByStep: Partial<Record<Step, number>> = {
+    forening: 0,
+    opret: 0,
+    afventer: 0,
+    hvad: 0,
+    aflys: 1,
+    aflys_kvittering: 4,
+  };
+  const stepIndex = stepIndexByStep[step] ?? Math.max(0, stepOrder.indexOf(step));
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white flex justify-center px-4 py-8 md:py-14">
@@ -323,6 +365,178 @@ export default function ForeningBookingPortal() {
             </div>
           )}
 
+          {step === "hvad" && selectedOrg && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="font-semibold text-slate-900">Hej {selectedOrg.name}</h2>
+                <p className="text-sm text-slate-500 mt-0.5">Hvad vil I?</p>
+              </div>
+              <button
+                onClick={() => setStep("faciliteter")}
+                className="w-full text-left rounded-2xl border border-slate-200 hover:border-blue-300 hover:shadow-sm transition px-4 py-4"
+              >
+                <div className="font-semibold text-slate-900">Book en ny tid</div>
+                <div className="text-sm text-slate-500 mt-0.5">Vælg faciliteter, dag og tidspunkt.</div>
+              </button>
+              <button
+                onClick={openCancelStep}
+                className="w-full text-left rounded-2xl border border-slate-200 hover:border-blue-300 hover:shadow-sm transition px-4 py-4"
+              >
+                <div className="font-semibold text-slate-900">Anmod om aflysning</div>
+                <div className="text-sm text-slate-500 mt-0.5">
+                  Aflys en sæsonbooking (hele sæsonen, fra en dato eller kun én dag) eller en enkelt booking.
+                </div>
+              </button>
+              <button onClick={() => setStep("forening")} className="w-full text-sm text-slate-500 py-1">
+                Skift forening
+              </button>
+            </div>
+          )}
+
+          {step === "aflys" && selectedOrg && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="font-semibold text-slate-900">Anmod om aflysning</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Vælg den booking eller sæson, I vil aflyse. Aflysningen skal godkendes af Grenaa Idrætscenter - I får
+                  en mail, når den er behandlet. Indtil da er bookingen stadig gældende.
+                </p>
+              </div>
+
+              {loadingOrgBookings || !orgBookings ? (
+                <div className="space-y-2 animate-pulse">
+                  <div className="h-16 rounded-xl bg-slate-100" />
+                  <div className="h-16 rounded-xl bg-slate-100" />
+                </div>
+              ) : orgBookings.series.length === 0 && orgBookings.singles.length === 0 ? (
+                <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+                  I har ingen kommende bookinger.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[28rem] overflow-y-auto">
+                  {orgBookings.series.length > 0 && (
+                    <div className="text-xs uppercase tracking-wide text-slate-400">Sæsonbookinger</div>
+                  )}
+                  {orgBookings.series.map((sr) => {
+                    const picked = cancelTarget?.type === "series" && cancelTarget.series.seasonGroupId === sr.seasonGroupId;
+                    return (
+                      <div
+                        key={sr.seasonGroupId}
+                        className={`rounded-xl border ${picked ? "border-blue-500 bg-blue-50/40" : "border-slate-200"}`}
+                      >
+                        <button onClick={() => chooseCancelTarget({ type: "series", series: sr })} className="w-full text-left px-4 py-3">
+                          <div className="font-medium text-slate-800">
+                            Hver {weekdayName(sr.weekday).toLowerCase()} kl. {fmtTime(sr.startTime)}-{fmtTime(sr.endTime)}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {sr.facilityName} · {fmtShort(sr.firstDate)} – {fmtShort(sr.lastDate)} · {sr.dates.length}{" "}
+                            {sr.dates.length === 1 ? "gang" : "gange"} tilbage
+                          </div>
+                        </button>
+                        {picked && (
+                          <div className="px-4 pb-4 space-y-3 border-t border-slate-100 pt-3">
+                            {(
+                              [
+                                ["alt", `Hele resten af sæsonen (${sr.dates.length} ${sr.dates.length === 1 ? "gang" : "gange"})`],
+                                ["fra_dato", "Fra og med en bestemt dato"],
+                                ["enkelt", "Kun én bestemt dag"],
+                              ] as const
+                            ).map(([value, label]) => (
+                              <label key={value} className="flex items-center gap-2 text-sm text-slate-700">
+                                <input type="radio" name="scope" checked={cancelScope === value} onChange={() => setCancelScope(value)} />
+                                {label}
+                              </label>
+                            ))}
+                            {cancelScope !== "alt" && (
+                              <select
+                                value={cancelDate}
+                                onChange={(e) => setCancelDate(e.target.value)}
+                                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
+                              >
+                                {sr.dates.map((d) => (
+                                  <option key={d} value={d}>
+                                    {fmtDay(d)}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {orgBookings.singles.length > 0 && (
+                    <div className="text-xs uppercase tracking-wide text-slate-400 pt-2">Enkeltbookinger</div>
+                  )}
+                  {orgBookings.singles.map((b) => {
+                    const picked = cancelTarget?.type === "single" && cancelTarget.booking.id === b.id;
+                    return (
+                      <button
+                        key={b.id}
+                        onClick={() => chooseCancelTarget({ type: "single", booking: b })}
+                        className={`w-full text-left rounded-xl border px-4 py-3 ${
+                          picked ? "border-blue-500 bg-blue-50/40" : "border-slate-200 hover:border-slate-300"
+                        }`}
+                      >
+                        <div className="font-medium text-slate-800">
+                          {fmtDay(b.date)} kl. {fmtTime(b.startTime)}-{fmtTime(b.endTime)}
+                        </div>
+                        <div className="text-xs text-slate-500">{b.facilityName}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {cancelTarget && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Besked til os (valgfrit)</label>
+                  <textarea
+                    value={cancelNotes}
+                    onChange={(e) => setCancelNotes(e.target.value)}
+                    rows={2}
+                    placeholder="fx årsag eller ønske om en anden tid"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
+                  />
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button onClick={() => setStep("hvad")} className="flex-1 rounded-xl border border-slate-300 py-3 text-sm font-medium text-slate-700">
+                  Tilbage
+                </button>
+                <button
+                  onClick={submitCancellation}
+                  disabled={!cancelTarget || busy || (cancelTarget.type === "series" && cancelScope !== "alt" && !cancelDate)}
+                  className="flex-1 rounded-xl bg-red-600 text-white py-3 font-medium disabled:opacity-40"
+                >
+                  {busy ? "Sender..." : "Send anmodning"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === "aflys_kvittering" && (
+            <div className="space-y-4 text-center">
+              <div className="text-4xl">&#128172;</div>
+              <h2 className="font-semibold text-slate-900 text-lg">Anmodning sendt!</h2>
+              <p className="text-sm text-slate-600">
+                Vi har modtaget jeres anmodning om aflysning. Grenaa Idrætscenter behandler den hurtigst muligt, og I får
+                en mail til {selectedOrg?.contactEmail}, når den er godkendt. Indtil da er bookingen stadig gældende.
+              </p>
+              <button
+                onClick={() => {
+                  setCancelTarget(null);
+                  setStep("hvad");
+                }}
+                className="block w-full text-sm text-blue-600 font-medium"
+              >
+                Tilbage
+              </button>
+            </div>
+          )}
+
           {step === "faciliteter" && (
             <div className="space-y-4">
               <h2 className="font-semibold text-slate-900">Vælg faciliteter</h2>
@@ -349,7 +563,7 @@ export default function ForeningBookingPortal() {
                 ))}
               </div>
               <div className="flex gap-3">
-                <button onClick={() => setStep("forening")} className="flex-1 rounded-xl border border-slate-300 py-3 text-sm font-medium text-slate-700">
+                <button onClick={() => setStep("hvad")} className="flex-1 rounded-xl border border-slate-300 py-3 text-sm font-medium text-slate-700">
                   Tilbage
                 </button>
                 <button
@@ -365,104 +579,38 @@ export default function ForeningBookingPortal() {
 
           {step === "dato" && (
             <div className="space-y-4">
-              <h2 className="font-semibold text-slate-900">Vælg dato</h2>
-              <div className="flex items-center justify-between">
-                <button onClick={() => setWeekStart((w) => addDays(w, -7))} className="text-slate-400 hover:text-slate-700 px-2">
-                  &larr;
-                </button>
-                <span className="text-sm font-medium text-slate-700">
-                  {formatDaDateShort(`${localISODate(weekStart)}T00:00:00`)} - {formatDaDateShort(`${localISODate(addDays(weekStart, 6))}T00:00:00`)}
-                </span>
-                <button onClick={() => setWeekStart((w) => addDays(w, 7))} className="text-slate-400 hover:text-slate-700 px-2">
-                  &rarr;
-                </button>
+              <div>
+                <h2 className="font-semibold text-slate-900">Vælg dag og tid</h2>
+                <p className="text-sm text-slate-500 mt-0.5">{selectedFacilities.map((f) => f.name).join(", ")}</p>
               </div>
-              <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                {weekDays.map((d) => {
-                  const dateISO = localISODate(d);
-                  const ranges = busyRangesForDay(dateISO);
-                  const isSelected = selectedDate === dateISO;
-                  return (
-                    <button
-                      key={dateISO}
-                      onClick={() => selectDay(dateISO)}
-                      className={`w-full text-left rounded-lg border px-3 py-2 text-sm ${
-                        isSelected ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-slate-300"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-slate-800 capitalize">{formatDaDateShort(`${dateISO}T00:00:00`)}</span>
-                        {ranges.length === 0 ? (
-                          <span className="text-xs text-emerald-600">Ledig hele dagen</span>
-                        ) : (
-                          <span className="text-xs text-amber-600">Optaget: {ranges.join(", ")}</span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {selectedDate && (
-                <div className="space-y-3 border-t border-slate-100 pt-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Fra</label>
-                      <WheelStepInput
-                        type="time"
-                        value={startTime}
-                        onChange={(v) => {
-                          setStartTime(v);
-                          setAvailability("ukendt");
-                        }}
-                        onRoundedBlur={roundTimeString}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Til</label>
-                      <WheelStepInput
-                        type="time"
-                        value={endTime}
-                        onChange={(v) => {
-                          setEndTime(v);
-                          setAvailability("ukendt");
-                        }}
-                        onRoundedBlur={roundTimeString}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm"
-                      />
-                    </div>
+              <SlotPicker
+                facilityIds={Array.from(selectedFacilityIds)}
+                audience="forening"
+                allowRequests
+                onChange={setSlot}
+              />
+              {slot && (
+                <div
+                  className={`rounded-xl border px-4 py-3 text-sm ${
+                    slot.occupied ? "border-amber-200 bg-amber-50 text-amber-900" : "border-blue-200 bg-blue-50 text-blue-900"
+                  }`}
+                >
+                  <div className="font-medium">
+                    {fmtDay(slot.date)} · {slot.startTime}–{slot.endTime}
                   </div>
-                  <button
-                    onClick={checkAvailability}
-                    disabled={busy}
-                    className="w-full rounded-xl border border-blue-300 text-blue-700 py-2.5 text-sm font-medium disabled:opacity-50"
-                  >
-                    {busy ? "Tjekker..." : "Tjek ledighed"}
-                  </button>
-                  {availability === "ledig" && (
-                    <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
-                      Tiden er ledig i alle valgte faciliteter!
-                    </div>
-                  )}
-                  {availability === "optaget" && (
-                    <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 space-y-1">
-                      <div>Optaget i: {busyFacilityNames.join(", ")}</div>
-                      <div className="text-xs text-red-500">
-                        I kan stadig gå videre og sende en anmodning om at få tiden - Grenaa Idrætscenter tager
-                        stilling til det.
-                      </div>
-                    </div>
-                  )}
+                  <div className={slot.occupied ? "text-amber-700" : "text-blue-700"}>
+                    {slot.occupied
+                      ? "Tiden er optaget - I sender en anmodning, som Grenaa Idrætscenter tager stilling til."
+                      : "Tiden er ledig."}
+                  </div>
                 </div>
               )}
-
               <div className="flex gap-3">
                 <button onClick={() => setStep("faciliteter")} className="flex-1 rounded-xl border border-slate-300 py-3 text-sm font-medium text-slate-700">
                   Tilbage
                 </button>
                 <button
-                  disabled={availability === "ukendt"}
+                  disabled={!slot}
                   onClick={() => setStep("info")}
                   className="flex-1 rounded-xl bg-blue-600 text-white py-3 font-medium disabled:opacity-40"
                 >

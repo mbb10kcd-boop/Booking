@@ -14,7 +14,21 @@ type Item = {
   extraEmail: string | null;
   createdAt: string | null;
   conflictingBookings: { id: string; title: string; status: string }[];
+  kind: "tid" | "aflysning";
+  cancelScope: string | null;
+  cancelCount: number;
+  cancelLastDate: string | null;
+  isSeasonCancel: boolean;
 };
+
+function cancelSummary(it: Item): string {
+  const when = `${formatDaDate(it.startsAt)}, ${formatDaTime(it.startsAt)}-${formatDaTime(it.endsAt)}`;
+  if (!it.isSeasonCancel) return `Aflys booking: ${when}`;
+  if (it.cancelScope === "enkelt") return `Aflys kun denne dato: ${when}`;
+  if (it.cancelScope === "fra_dato")
+    return `Aflys ${it.cancelCount} bookinger fra ${formatDaDate(it.startsAt)}${it.cancelLastDate ? ` til ${formatDaDate(`${it.cancelLastDate}T00:00:00`)}` : ""} (kl. ${formatDaTime(it.startsAt)}-${formatDaTime(it.endsAt)})`;
+  return `Aflys hele resten af sæsonen: ${it.cancelCount} bookinger${it.cancelLastDate ? ` (til og med ${formatDaDate(`${it.cancelLastDate}T00:00:00`)})` : ""}, kl. ${formatDaTime(it.startsAt)}-${formatDaTime(it.endsAt)}`;
+}
 
 const STATUS_LABELS: Record<Item["status"], string> = {
   afventer: "Afventer",
@@ -73,10 +87,19 @@ export function RescheduleRequestsClient({ initialItems }: { initialItems: Item[
               <div key={it.id} className="px-4 py-4 space-y-2">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <div className="font-medium text-slate-900">{it.organizationName}</div>
+                    <div className="font-medium text-slate-900">
+                      {it.organizationName}
+                      {it.kind === "aflysning" && (
+                        <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">
+                          Anmoder om aflysning
+                        </span>
+                      )}
+                    </div>
                     <div className="text-sm text-slate-600">{it.facilityNames.join(", ")}</div>
                     <div className="text-sm text-slate-500">
-                      {formatDaDate(it.startsAt)}, {formatDaTime(it.startsAt)}-{formatDaTime(it.endsAt)}
+                      {it.kind === "aflysning"
+                        ? cancelSummary(it)
+                        : `${formatDaDate(it.startsAt)}, ${formatDaTime(it.startsAt)}-${formatDaTime(it.endsAt)}`}
                     </div>
                     {it.notes && <div className="text-xs text-slate-400 mt-1">Note: {it.notes}</div>}
                     {it.extraEmail && <div className="text-xs text-slate-400">Ekstra mail: {it.extraEmail}</div>}
@@ -98,7 +121,13 @@ export function RescheduleRequestsClient({ initialItems }: { initialItems: Item[
                     </button>
                   </div>
                 </div>
-                {it.conflictingBookings.length > 0 && (
+                {it.kind === "aflysning" && (
+                  <div className="text-xs text-slate-600 bg-white/70 border border-amber-100 rounded-lg px-3 py-2">
+                    Ved godkendelse aflyses de nævnte bookinger, og {it.organizationName} får én samlet besked. Ved
+                    afvisning ændres intet, og foreningen får besked om det.
+                  </div>
+                )}
+                {it.kind === "tid" && it.conflictingBookings.length > 0 && (
                   <div className="text-xs text-slate-600 bg-white/70 border border-amber-100 rounded-lg px-3 py-2">
                     <span className="font-medium">Optaget af:</span> {it.conflictingBookings.map((b) => b.title).join(", ")}
                     <br />
@@ -123,8 +152,9 @@ export function RescheduleRequestsClient({ initialItems }: { initialItems: Item[
                 <div>
                   <div className="font-medium text-slate-900">{it.organizationName}</div>
                   <div className="text-xs text-slate-500">
-                    {it.facilityNames.join(", ")} · {formatDaDate(it.startsAt)}, {formatDaTime(it.startsAt)}-
-                    {formatDaTime(it.endsAt)}
+                    {it.kind === "aflysning"
+                      ? `Aflysning · ${it.facilityNames.join(", ")} · ${cancelSummary(it)}`
+                      : `${it.facilityNames.join(", ")} · ${formatDaDate(it.startsAt)}, ${formatDaTime(it.startsAt)}-${formatDaTime(it.endsAt)}`}
                   </div>
                 </div>
                 <span className={`text-xs px-2 py-0.5 rounded-full border ${STATUS_CLASSES[it.status]}`}>

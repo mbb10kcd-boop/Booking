@@ -312,6 +312,15 @@ export const rescheduleRequests = sqliteTable("reschedule_requests", {
   status: text("status", { enum: ["afventer", "godkendt", "afvist"] })
     .notNull()
     .default("afventer"),
+  // Type af anmodning. NULL/"tid" = en forening beder om en optaget TID (det
+  // oprindelige flow, se /api/portal/request-reschedule). "aflysning" = en
+  // forening beder om at få en eksisterende booking/sæson AFLYST (se
+  // /api/portal/request-cancellation) - her indeholder `conflictingBookingIds`
+  // de bookinger der aflyses ved godkendelse, og `cancelScope`/`seasonGroupId`
+  // beskriver hvad der er bedt om. Alle tre er nullable (ældre rækker har dem ikke).
+  kind: text("kind"),
+  cancelScope: text("cancel_scope"), // "alt" | "fra_dato" | "enkelt"
+  seasonGroupId: text("season_group_id"),
   decidedAt: text("decided_at"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });

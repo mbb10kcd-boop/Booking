@@ -319,3 +319,45 @@ Den eksisterende booking i tidsrummet bliver stående. I er velkomne til at send
 Venlig hilsen
 Grenaa Idrætscenter`;
 }
+
+
+/** Besked til en forening når personalet har GODKENDT deres anmodning om aflysning. */
+export function cancellationRequestApprovedMessage(opts: {
+  organizationName: string;
+  facilityName: string;
+  description: string; // fx "Hver torsdag kl. 16.30-18.00" eller "Torsdag 8. oktober kl. 16.30-18.00"
+  scopeText: string; // fx "hele resten af sæsonen" / "fra og med 8. oktober" / "kun denne dato"
+  count: number;
+}): string {
+  return `Hej ${opts.organizationName}
+
+Vi har godkendt jeres anmodning om aflysning (${opts.scopeText}):
+
+${opts.facilityName}
+${opts.description}
+${opts.count === 1 ? "1 booking er aflyst." : `${opts.count} bookinger er aflyst.`}
+
+Kontakt os endelig, hvis I har spørgsmål, eller ønsker at booke en ny tid.
+
+Venlig hilsen
+Grenaa Idrætscenter`;
+}
+
+/** Besked til en forening når personalet har AFVIST deres anmodning om aflysning. */
+export function cancellationRequestRejectedMessage(opts: {
+  organizationName: string;
+  facilityName: string;
+  description: string;
+}): string {
+  return `Hej ${opts.organizationName}
+
+Vi kan desværre ikke imødekomme jeres anmodning om aflysning af:
+
+${opts.facilityName}
+${opts.description}
+
+Jeres booking bliver derfor stående som hidtil. Kontakt os endelig, hvis I vil høre mere eller har brug for en anden løsning.
+
+Venlig hilsen
+Grenaa Idrætscenter`;
+}

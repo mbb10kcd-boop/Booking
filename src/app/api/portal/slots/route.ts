@@ -12,7 +12,10 @@ import { addDays, localISODate } from "@/lib/date";
  * med det samme uden at spørge serveren om hvert enkelt tidspunkt.
  * Det endelige, autoritative konflikttjek sker stadig ved selve bookingen.
  *
- * GET /api/portal/slots?facilityIds=a,b&from=2026-10-07&days=30
+ * GET /api/portal/slots?facilityIds=a,b&from=2026-10-07&days=30[&audience=forening]
+ *
+ * `audience` er "privat" (standard) eller "forening" og afgør hvilke
+ * faciliteter der må ses (hiddenFromPrivatePortal vs. hiddenFromOrgPortal).
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -23,9 +26,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "facilityIds og from (YYYY-MM-DD) er påkrævet" }, { status: 400 });
   }
 
+  const forening = searchParams.get("audience") === "forening";
   const facilities = await getAllFacilities();
   const allowed = facilities
-    .filter((f) => ids.includes(f.id) && !f.archived && !f.hiddenFromPrivatePortal)
+    .filter((f) => ids.includes(f.id) && !f.archived && !(forening ? f.hiddenFromOrgPortal : f.hiddenFromPrivatePortal))
     .map((f) => f.id);
 
   const rangeFrom = `${from}T00:00:00`;
