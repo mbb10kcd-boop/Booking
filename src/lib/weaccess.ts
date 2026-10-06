@@ -22,13 +22,22 @@
  * virker.
  */
 
+/**
+ * Env-variabler bliver nogle gange indsat med ekstra linjer/tekst (fx hele
+ * header-blokken fra mailen). Vi bruger kun første "ord" (op til mellemrum/
+ * linjeskift), så en rodet værdi ikke giver ugyldige HTTP-headers.
+ */
+function firstToken(v: string | undefined): string {
+  return (v ?? "").trim().split(/\s+/)[0] ?? "";
+}
+
 const BASE_URL = (process.env.WEACCESS_BASE_URL || "https://api.weaccess.net").replace(/\/+$/, "");
-const PARTNER_KEY = process.env.WEACCESS_PARTNER_KEY || "grenaa-ic";
-const PROFILE_ID = process.env.WEACCESS_PROFILE_ID || "DA2A2C79A9EF262F";
+const PARTNER_KEY = firstToken(process.env.WEACCESS_PARTNER_KEY) || "grenaa-ic";
+const PROFILE_ID = firstToken(process.env.WEACCESS_PROFILE_ID) || "DA2A2C79A9EF262F";
 const TIMEOUT_MS = 15_000;
 
 export function isWeAccessEnabled(): boolean {
-  return !!process.env.WEACCESS_API_KEY;
+  return !!firstToken(process.env.WEACCESS_API_KEY);
 }
 
 /**
@@ -98,7 +107,7 @@ async function rawRequest(
   body?: unknown,
   idempotencyKey?: string
 ): Promise<{ status: number; text: string }> {
-  const apiKey = process.env.WEACCESS_API_KEY;
+  const apiKey = firstToken(process.env.WEACCESS_API_KEY);
   if (!apiKey) throw new WeAccessError(0, "WEACCESS_API_KEY er ikke sat");
   const headers: Record<string, string> = {
     "x-partner-key": PARTNER_KEY,
@@ -120,7 +129,9 @@ async function rawRequest(
     });
     return { status: res.status, text: await res.text() };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    // Fejlbeskeden må aldrig indeholde header-værdier (nøglen) – brug kun en generisk tekst.
+    const aborted = err instanceof Error && err.name === "AbortError";
+    const msg = aborted ? "timeout" : err instanceof Error ? err.name : "ukendt fejl";
     throw new WeAccessError(0, `Netværksfejl mod WeAccess: ${msg}`);
   } finally {
     clearTimeout(timer);
