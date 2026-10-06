@@ -6,6 +6,7 @@ import { findConflicts } from "@/lib/conflicts";
 import { logAudit } from "@/lib/audit";
 import { confirmationMessage } from "@/lib/ai/messages";
 import { maybeCreateAccessCode } from "@/lib/accessCodes";
+import { sendNotification } from "@/lib/mailer";
 
 /** Offentlig bookingportal: opret en booking som ekstern gæst (privatperson) */
 export async function POST(req: NextRequest) {
@@ -78,7 +79,7 @@ export async function POST(req: NextRequest) {
       endsAt,
     });
 
-    await db.insert(schema.notificationLog).values({
+    await sendNotification({
       id: newId("notif"),
       bookingId: id,
       type: "bekraeftelse",

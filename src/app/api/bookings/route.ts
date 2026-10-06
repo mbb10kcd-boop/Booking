@@ -5,6 +5,7 @@ import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
 import { findConflicts, findWarnings } from "@/lib/conflicts";
 import { confirmationMessage } from "@/lib/ai/messages";
+import { sendNotification } from "@/lib/mailer";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest) {
       endsAt: booking.endsAt,
       recipientName: booking.contactName ?? undefined,
     });
-    await db.insert(schema.notificationLog).values({
+    await sendNotification({
       id: newId("notif"),
       bookingId: id,
       type: "bekraeftelse",

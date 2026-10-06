@@ -5,6 +5,7 @@ import { newId } from "@/lib/ids";
 import { findConflicts } from "@/lib/conflicts";
 import { logAudit } from "@/lib/audit";
 import { foreningBookingConfirmationMessage } from "@/lib/ai/messages";
+import { sendNotification } from "@/lib/mailer";
 
 /**
  * Foreningsportalens bookingtrin: opretter ÉN booking pr. valgt facilitet
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
     note: notes || undefined,
   });
   for (const recipient of recipients) {
-    await db.insert(schema.notificationLog).values({
+    await sendNotification({
       id: newId("notif"),
       bookingId: createdBookings[0]?.id ?? null,
       type: "bekraeftelse",

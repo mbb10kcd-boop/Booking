@@ -442,6 +442,10 @@ export const notificationLog = sqliteTable("notification_log", {
   subject: text("subject"),
   body: text("body"),
   sentAt: text("sent_at").default(sql`CURRENT_TIMESTAMP`),
+  // "simuleret" (ingen mailudbyder sat), "sendt" eller "fejlet" - se src/lib/mailer.ts.
+  // Nullable: ældre rækker har ingen værdi (blev kun logget, aldrig sendt).
+  deliveryStatus: text("delivery_status"),
+  deliveryError: text("delivery_error"),
 });
 
 // ---------------------------------------------------------------------------

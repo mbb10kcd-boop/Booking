@@ -6,6 +6,7 @@ import { logAudit } from "@/lib/audit";
 import { findConflicts, findWarnings } from "@/lib/conflicts";
 import { seasonConfirmationMessage } from "@/lib/ai/messages";
 import { weeklyOccurrenceDates } from "@/lib/date";
+import { sendNotification } from "@/lib/mailer";
 
 /**
  * Opretter en sæsonbooking: én selvstændig booking-række pr. ugentlig
@@ -107,7 +108,7 @@ export async function POST(req: NextRequest) {
       occurrenceCount: dates.length,
       recipientName: body.contactName ?? undefined,
     });
-    await db.insert(schema.notificationLog).values({
+    await sendNotification({
       id: newId("notif"),
       bookingId: createdBookingIds[0],
       type: "bekraeftelse",

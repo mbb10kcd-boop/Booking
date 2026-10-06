@@ -1,6 +1,7 @@
 import { db, schema } from "@/db";
 import { desc } from "drizzle-orm";
 import { PageHeader } from "@/components/PageHeader";
+import { isMailEnabled } from "@/lib/mailer";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,11 @@ export default async function NotifikationerPage() {
     <div>
       <PageHeader
         title="Genererede beskeder"
-        subtitle="Simuleret udsendelse - der er endnu ikke koblet en rigtig mailudbyder på (se ARKITEKTUR.md)"
+        subtitle={
+          isMailEnabled()
+            ? "Beskederne sendes som rigtig mail via Resend - status ses ved hver besked"
+            : "Simuleret udsendelse - RESEND_API_KEY mangler, så der sendes ingen rigtige mails"
+        }
       />
       <div className="p-4 md:p-8 max-w-3xl space-y-3">
         {log.map((n) => (
@@ -31,7 +36,14 @@ export default async function NotifikationerPage() {
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
                 {TYPE_LABELS[n.type] ?? n.type}
               </span>
-              <span className="text-xs text-slate-400">Til: {n.recipient ?? "ukendt"}</span>
+              <span className="text-xs text-slate-400">
+                Til: {n.recipient ?? "ukendt"}
+                {n.deliveryStatus === "sendt" && <span className="ml-2 text-emerald-600">· sendt</span>}
+                {n.deliveryStatus === "fejlet" && (
+                  <span className="ml-2 text-red-600">· fejlet{n.deliveryError ? ` (${n.deliveryError})` : ""}</span>
+                )}
+                {n.deliveryStatus === "simuleret" && <span className="ml-2">· ikke sendt (simuleret)</span>}
+              </span>
             </div>
             {n.subject && <div className="font-medium text-slate-800 text-sm mb-1">{n.subject}</div>}
             <pre className="whitespace-pre-wrap text-sm text-slate-600 font-sans">{n.body}</pre>

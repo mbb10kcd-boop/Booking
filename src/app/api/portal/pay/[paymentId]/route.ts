@@ -4,6 +4,7 @@ import { eq, inArray } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
 import { maybeCreateAccessCode } from "@/lib/accessCodes";
+import { sendNotification } from "@/lib/mailer";
 
 /**
  * Simulerer en vellykket betaling (der findes endnu ikke en rigtig
@@ -67,7 +68,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pa
   }
 
   const facilityNames = groupBookings.map((b) => facilityById.get(b.facilityId)?.name ?? "Ukendt facilitet");
-  await db.insert(schema.notificationLog).values({
+  await sendNotification({
     id: newId("notif"),
     bookingId: primaryBooking.id,
     type: "betalingskvittering",

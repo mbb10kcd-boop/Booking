@@ -2,6 +2,7 @@ import { db, schema } from "@/db";
 import { eq } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { cancellationMessage, movedMessage } from "@/lib/ai/messages";
+import { sendNotification } from "@/lib/mailer";
 
 /**
  * Finder alle mailadresser en besked om en given booking skal sendes til:
@@ -44,7 +45,7 @@ export async function notifyCancellation(booking: typeof schema.bookings.$inferS
     recipientName: booking.contactName ?? undefined,
   });
   for (const recipient of recipients) {
-    await db.insert(schema.notificationLog).values({
+    await sendNotification({
       id: newId("notif"),
       bookingId: booking.id,
       type: "aflysning",
@@ -72,7 +73,7 @@ export async function notifyMove(updated: typeof schema.bookings.$inferSelect) {
     recipientName: updated.contactName ?? undefined,
   });
   for (const recipient of recipients) {
-    await db.insert(schema.notificationLog).values({
+    await sendNotification({
       id: newId("notif"),
       bookingId: updated.id,
       type: "aendring",

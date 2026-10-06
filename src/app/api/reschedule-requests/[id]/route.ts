@@ -7,6 +7,7 @@ import { findConflicts } from "@/lib/conflicts";
 import { logAudit } from "@/lib/audit";
 import { foreningBookingConfirmationMessage, rescheduleRejectedMessage } from "@/lib/ai/messages";
 import { notifyCancellation } from "@/lib/notifications";
+import { sendNotification } from "@/lib/mailer";
 
 /**
  * Personalets godkendelse/afvisning af en anmodning om aflysning/flytning
@@ -56,7 +57,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       organizationName: org.name,
     });
     for (const recipient of recipients) {
-      await db.insert(schema.notificationLog).values({
+      await sendNotification({
         id: newId("notif"),
         bookingId: null,
         type: "afvisning",
@@ -125,7 +126,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     note: request.notes || undefined,
   });
   for (const recipient of recipients) {
-    await db.insert(schema.notificationLog).values({
+    await sendNotification({
       id: newId("notif"),
       bookingId: createdBookings[0]?.id ?? null,
       type: "bekraeftelse",

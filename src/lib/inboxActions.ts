@@ -6,6 +6,7 @@ import { logAudit } from "./audit";
 import { findConflicts } from "./conflicts";
 import { displacedBookingMessage, rejectionMessage } from "./ai/messages";
 import { localISODate } from "./date";
+import { sendNotification } from "@/lib/mailer";
 
 type RequestLine = typeof schema.bookingRequestLines.$inferSelect;
 type BookingRequestRow = typeof schema.bookingRequests.$inferSelect;
@@ -83,7 +84,7 @@ export async function approveLine(lineId: string, overtake: boolean, actorName =
           const [org] = await db.select().from(schema.organizations).where(eq(schema.organizations.id, existing.organizationId));
           recipient = org?.contactEmail ?? null;
         }
-        await db.insert(schema.notificationLog).values({
+        await sendNotification({
           id: newId("notif"),
           bookingId: existing.id,
           type: "aendring",
@@ -154,7 +155,7 @@ export async function rejectLine(lineId: string, actorName = "Medarbejder"): Pro
     recipientName: request.parsedContactName ?? undefined,
   });
 
-  await db.insert(schema.notificationLog).values({
+  await sendNotification({
     id: newId("notif"),
     type: "afvisning",
     recipient: request.parsedContactEmail ?? "ukendt",

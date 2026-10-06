@@ -8,6 +8,7 @@ import { resolveNotificationRecipients } from "@/lib/notifications";
 import { resetAccessCodeForBooking } from "@/lib/accessCodes";
 import { addDays, localISODate } from "@/lib/date";
 import { newId } from "@/lib/ids";
+import { sendNotification } from "@/lib/mailer";
 
 type Booking = typeof schema.bookings.$inferSelect;
 
@@ -144,7 +145,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ se
       recipientName: anchor.contactName ?? undefined,
     });
     for (const recipient of recipients) {
-      await db.insert(schema.notificationLog).values({
+      await sendNotification({
         id: newId("notif"),
         bookingId: anchor.id,
         type: "aendring",

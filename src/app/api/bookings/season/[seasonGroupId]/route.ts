@@ -7,6 +7,7 @@ import { seasonCancellationMessage } from "@/lib/ai/messages";
 import { newId } from "@/lib/ids";
 import { resolveNotificationRecipients } from "@/lib/notifications";
 import { revokeAccessCodesForBookings } from "@/lib/accessCodes";
+import { sendNotification } from "@/lib/mailer";
 
 /**
  * Aflyser en HEL sæson på én gang - alle forekomster der ikke allerede er
@@ -49,7 +50,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
         recipientName: first.contactName ?? undefined,
       });
       for (const recipient of recipients) {
-        await db.insert(schema.notificationLog).values({
+        await sendNotification({
           id: newId("notif"),
           bookingId: first.id,
           type: "aflysning",

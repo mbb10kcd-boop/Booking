@@ -6,6 +6,7 @@ import { findConflicts } from "@/lib/conflicts";
 import { logAudit } from "@/lib/audit";
 import { groupConfirmationMessage } from "@/lib/ai/messages";
 import { maybeCreateAccessCode } from "@/lib/accessCodes";
+import { sendNotification } from "@/lib/mailer";
 
 /**
  * Offentlig bookingportal: opret en bestilling af FLERE indbyrdes
@@ -125,7 +126,7 @@ export async function POST(req: NextRequest) {
         .set({ accessCode: code })
         .where(inArray(schema.bookings.id, bookingIds.slice(1)));
     }
-    await db.insert(schema.notificationLog).values({
+    await sendNotification({
       id: newId("notif"),
       bookingId: bookingIds[0],
       type: "bekraeftelse",
