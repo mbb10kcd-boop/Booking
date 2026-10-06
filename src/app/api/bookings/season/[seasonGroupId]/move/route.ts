@@ -5,7 +5,7 @@ import { logAudit } from "@/lib/audit";
 import { findConflicts } from "@/lib/conflicts";
 import { seasonMovedMessage } from "@/lib/ai/messages";
 import { resolveNotificationRecipients } from "@/lib/notifications";
-import { maybeCreateAccessCode } from "@/lib/accessCodes";
+import { resetAccessCodeForBooking } from "@/lib/accessCodes";
 import { addDays, localISODate } from "@/lib/date";
 import { newId } from "@/lib/ids";
 
@@ -118,18 +118,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ se
     // enkelt-booking-flytning (se PATCH /api/bookings/[id]) - i praksis
     // sjældent relevant her, da sæsonbookinger næsten altid er
     // foreningsbookinger, og foreninger aldrig får en kode.
-    await db.delete(schema.accessCodes).where(eq(schema.accessCodes.bookingId, booking.id));
-    await db.update(schema.bookings).set({ accessCode: null }).where(eq(schema.bookings.id, booking.id));
-    if (nextFacility) {
-      await maybeCreateAccessCode({
-        bookingId: booking.id,
-        organizationId: booking.organizationId,
-        facility: nextFacility,
-        allFacilities,
-        startsAt,
-        endsAt,
-      });
-    }
+    await resetAccessCodeForBooking({
+      bookingId: booking.id,
+      organizationId: booking.organizationId,
+      facility: nextFacility,
+      allFacilities,
+      startsAt,
+      endsAt,
+      status: booking.status,
+    });
 
     await logAudit("booking", booking.id, "flyttet", "Flyttet som del af hele sæsonen");
   }

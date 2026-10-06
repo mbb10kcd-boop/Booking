@@ -77,12 +77,31 @@ async function main() {
   // Badmintonbanerne har intet eget felt - de arver Træningshallens dør via
   // resolveDoorFacilityId() i src/lib/accessCodes.ts, da de deler samme
   // fysiske indgang. Se we_access_door_id i schema.ts.
-  await sqlite.execute(
-    "UPDATE facilities SET we_access_door_id = 'traeningshallen' WHERE name = 'Træningshallen' AND (we_access_door_id IS NULL OR we_access_door_id = '')"
-  );
-  await sqlite.execute(
-    "UPDATE facilities SET we_access_door_id = 'multisalen' WHERE name = 'Multisalen' AND (we_access_door_id IS NULL OR we_access_door_id = '')"
-  );
+  // Fra oktober 2026 er koblingen til WeAccess' rigtige API oprettet, og
+  // WeAccess har oplyst de rigtige dør-id'er (Træningshallen = 25577710,
+  // "Indgangen ved Multisalen" = 22399612). De tidligere placeholder-værdier
+  // ("traeningshallen"/"multisalen") og alt, der peger på dem (kodepuljen og
+  // allerede tildelte koder), migreres her - idempotent, kan køre ved hver
+  // deploy.
+  const WEACCESS_DOORS: Record<string, string> = {
+    Træningshallen: "25577710",
+    Multisalen: "22399612",
+  };
+  const LEGACY_DOOR_IDS: Record<string, string> = {
+    traeningshallen: "25577710",
+    multisalen: "22399612",
+  };
+  for (const [name, doorId] of Object.entries(WEACCESS_DOORS)) {
+    await sqlite.execute({
+      sql: "UPDATE facilities SET we_access_door_id = ? WHERE name = ? AND (we_access_door_id IS NULL OR we_access_door_id = '')",
+      args: [doorId, name],
+    });
+  }
+  for (const [legacy, doorId] of Object.entries(LEGACY_DOOR_IDS)) {
+    await sqlite.execute({ sql: "UPDATE facilities SET we_access_door_id = ? WHERE we_access_door_id = ?", args: [doorId, legacy] });
+    await sqlite.execute({ sql: "UPDATE door_code_pool SET door_id = ? WHERE door_id = ?", args: [doorId, legacy] });
+    await sqlite.execute({ sql: "UPDATE access_codes SET door_id = ? WHERE door_id = ?", args: [doorId, legacy] });
+  }
 
   // Faste dørkode-puljer (Martins forslag, da hverken WeAccess eller andre
   // undersøgte låsefabrikater tilbyder en brugbar API til at sende nye koder
@@ -94,11 +113,11 @@ async function main() {
   // den aldrig overskrives af en senere reseed. Se /doerkoder for oversigten
   // personalet skal bruge til selve indtastningen i låsene.
   const DOOR_CODE_POOLS: Record<string, string[]> = {
-    traeningshallen: [
+    "25577710": [ // Træningshallen
       "4960", "1602", "4120", "2274", "1745", "3580", "7211", "6715", "4081", "6417",
       "6358", "2153", "6861", "5698", "2137", "7645", "4253", "1456", "9987", "9230",
     ],
-    multisalen: [
+    "22399612": [ // Indgangen ved Multisalen
       "4245", "7955", "5680", "8613", "9787", "9345", "3055", "1573", "8108", "1922",
       "5356", "7950", "9090", "4342", "3993", "3791", "2019", "3262", "9690", "6353",
     ],
@@ -193,7 +212,7 @@ async function main() {
     color: "#059669",
     sortOrder: 3,
     // WeAccess-dørens id - se resolveDoorFacilityId() i src/lib/accessCodes.ts.
-    weAccessDoorId: "traeningshallen",
+    weAccessDoorId: "25577710",
     hiddenFromPrivatePortal: true,
   };
   const badmintonbaner = [1, 2, 3, 4, 5, 6].map((n) => ({
@@ -223,7 +242,7 @@ async function main() {
     capacity: 60,
     color: "#7c3aed",
     sortOrder: 10,
-    weAccessDoorId: "multisalen",
+    weAccessDoorId: "22399612",
     hiddenFromPrivatePortal: true,
   };
   const moedelokaler = [1, 2, 3, 4].map((n) => ({

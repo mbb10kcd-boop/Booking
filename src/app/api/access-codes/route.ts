@@ -11,10 +11,9 @@ import { maybeCreateAccessCode } from "@/lib/accessCodes";
  * (weAccessDoorId - p.t. Træningshallen og Multisalen). Returnerer 400 hvis
  * bookingen ikke er berettiget til en kode.
  *
- * Interfacet er bevidst adskilt fra bookinglogikken, så et rigtigt
- * låsesystem (WeAccess har p.t. ingen offentlig API - undersøgt september
- * 2026, kontakt sales@weaccess.dk) kan kobles til senere ved at udvide
- * maybeCreateAccessCode med det faktiske kald.
+ * Koden oprettes via WeAccess' Partner API (src/lib/weaccess.ts), når
+ * WEACCESS_API_KEY er sat på serveren - ellers bruges den faste kodepulje
+ * som reserveløsning. Se maybeCreateAccessCode i src/lib/accessCodes.ts.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json();

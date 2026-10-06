@@ -107,7 +107,7 @@ koblet en rigtig mailudbyder på (se kritiske beslutninger).
 | Dashboard + bookingindbakke som "indbakke" | Fuldt implementeret |
 | Roller/permissions | **Login/adgangsstyring implementeret** (email+kodeord, roller admin/medarbejder/pedel, se `/login` og `/brugere`) |
 | Online betaling | Simuleret (statusmodel og flow er fuldt implementeret, men ingen rigtig udbyder) |
-| Adgangskoder | Genereres og logges, men **ikke koblet til et rigtigt låsesystem** |
+| Adgangskoder | **Koblet til WeAccess' Partner API** (`src/lib/weaccess.ts`, `src/lib/accessCodes.ts`): privatpersoner får en tidsbegrænset PIN-kode på selve døren (Træningshallen 25577710, Multisalen 22399612), som flyttes ved ændring og spærres ved aflysning. Aktiveres ved at sætte miljøvariablen `WEACCESS_API_KEY` på Render (uden den bruges den gamle faste kodepulje). Admin-diagnostik: `GET /api/weaccess` (kræver login). |
 | E-mail (afsendelse/modtagelse) | Beskeder genereres og logges, men **sendes ikke rigtigt**; mails kommer ind ved at indsætte tekst i UI, ikke via en rigtig postkasse |
 | Winkas/GIBBS-import | Ikke bygget - se kritiske beslutninger |
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revokeAccessCodesForBooking } from "@/lib/accessCodes";
 import { db, schema } from "@/db";
 import { eq, inArray } from "drizzle-orm";
 import { newId } from "@/lib/ids";
@@ -83,6 +84,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       .set({ status: "aflyst", updatedAt: new Date().toISOString() })
       .where(eq(schema.bookings.id, bookingId));
     await logAudit("booking", bookingId, "aflyst", `Aflyst for at imødekomme anmodning fra ${org.name}`, "Personalet");
+    await revokeAccessCodesForBooking(bookingId);
     await notifyCancellation(existing);
   }
 

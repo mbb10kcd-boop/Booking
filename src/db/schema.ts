@@ -345,6 +345,12 @@ export const accessCodes = sqliteTable("access_codes", {
   // assignPoolCode() i src/lib/accessCodes.ts. Kan være NULL for koder
   // oprettet før dette felt blev tilføjet.
   doorId: text("door_id"),
+  // WeAccess' id for den "visit" (tidsbegrænsede PIN-kode) der ligger på
+  // selve låsen - bruges til at flytte/spærre koden, se src/lib/weaccess.ts.
+  // NULL for koder fra den faste kodepulje (der ikke er knyttet til nogen
+  // visit) og for koder oprettet før WeAccess-integrationen. Nullable af
+  // hensyn til db:push på en database med eksisterende rækker.
+  weAccessVisitId: text("we_access_visit_id"),
   code: text("code").notNull(),
   validFrom: text("valid_from").notNull(),
   validTo: text("valid_to").notNull(),

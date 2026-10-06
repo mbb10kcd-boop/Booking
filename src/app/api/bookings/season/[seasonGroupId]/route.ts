@@ -6,6 +6,7 @@ import { localISODate } from "@/lib/date";
 import { seasonCancellationMessage } from "@/lib/ai/messages";
 import { newId } from "@/lib/ids";
 import { resolveNotificationRecipients } from "@/lib/notifications";
+import { revokeAccessCodesForBookings } from "@/lib/accessCodes";
 
 /**
  * Aflyser en HEL sæson på én gang - alle forekomster der ikke allerede er
@@ -27,6 +28,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     await db.update(schema.bookings).set({ status: "aflyst" }).where(eq(schema.bookings.id, booking.id));
     await logAudit("booking", booking.id, "aflyst", "Aflyst som del af hele sæsonen");
   }
+
+  // Spær evt. dørkoder i WeAccess for de aflyste forekomster (i praksis
+  // sjældent relevant - sæsoner er næsten altid foreningsbookinger uden kode).
+  await revokeAccessCodesForBookings(toCancel.map((b) => b.id));
 
   // Én samlet aflysningsmail for hele sæsonen (ikke én pr. forekomst).
   const first = toCancel[0];

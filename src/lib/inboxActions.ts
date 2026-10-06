@@ -1,4 +1,5 @@
 import { db, schema } from "@/db";
+import { revokeAccessCodesForBooking } from "@/lib/accessCodes";
 import { eq } from "drizzle-orm";
 import { newId } from "./ids";
 import { logAudit } from "./audit";
@@ -68,6 +69,7 @@ export async function approveLine(lineId: string, overtake: boolean, actorName =
       // Overtag: aflys eksisterende og generer besked
       for (const existing of conflicts) {
         await db.update(schema.bookings).set({ status: "aflyst" }).where(eq(schema.bookings.id, existing.id));
+        await revokeAccessCodesForBooking(existing.id);
         result.cancelledExistingBookingIds.push(existing.id);
         const [facility] = await db.select().from(schema.facilities).where(eq(schema.facilities.id, existing.facilityId));
         const message = displacedBookingMessage({
