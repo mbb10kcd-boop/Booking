@@ -168,7 +168,7 @@ export function CalendarClient({
   const [organizations] = useState(initialOrganizations);
   const [bookings, setBookings] = useState<BookingDTO[]>([]);
   const [dayNotes, setDayNotes] = useState<DayNoteDTO[]>([]);
-  const [view, setView] = useState<ViewMode>("uge");
+  const [view, setView] = useState<ViewMode>("ugeplan");
   const [anchor, setAnchor] = useState(new Date());
   // Standardvalgte faciliteter: Martin har oplyst at Opvisningshallen,
   // Træningshallen og Multisalen stort set altid er dem der bruges, så de er
@@ -735,6 +735,7 @@ export function CalendarClient({
           <WeekGridView
             weekStart={rangeStart}
             facilities={facilities.filter((f) => !f.archived && selectedFacilityIds.has(f.id))}
+            allFacilities={facilities}
             bookings={visibleBookings}
             facilityName={facilityName}
             facilityColor={facilityColor}
@@ -1794,7 +1795,10 @@ interface WeekDragState {
  * fordeler dem derefter grådigt i baner indenfor hver klynge (samme
  * standardteknik som de fleste kalender-UI'er bruger).
  */
-function layoutDayBookings(dayBookings: BookingDTO[]): Map<string, { lane: number; laneCount: number }> {
+function layoutDayBookings(
+  dayBookings: BookingDTO[],
+  orderKey: (b: BookingDTO) => string
+): Map<string, { lane: number; laneCount: number }> {
   const events = dayBookings
     .map((b) => {
       const startMin = minutesOfDay(parseNaiveDateTime(b.startsAt));
@@ -1809,22 +1813,37 @@ function layoutDayBookings(dayBookings: BookingDTO[]): Map<string, { lane: numbe
   let cluster: typeof events = [];
   let clusterMaxEnd = -Infinity;
 
+  // Hver facilitet i en klynge får sin egen faste placering (venstre mod
+  // højre) efter `orderKey` - dvs. altid Opvisningshallen, Træningshallen,
+  // Multisalen - uanset hvem der er booket først (Martin). Overlapper to
+  // bookinger i SAMME facilitet, deler de facilitetens plads i under-baner.
   function flush() {
     if (cluster.length === 0) return;
-    const laneEnds: number[] = [];
-    const assigned: { id: string; lane: number }[] = [];
+    const groups = new Map<string, typeof events>();
     for (const ev of cluster) {
-      let lane = laneEnds.findIndex((end) => end <= ev.startMin);
-      if (lane === -1) {
-        lane = laneEnds.length;
-        laneEnds.push(ev.endMin);
-      } else {
-        laneEnds[lane] = ev.endMin;
-      }
-      assigned.push({ id: ev.b.id, lane });
+      const key = orderKey(ev.b);
+      const list = groups.get(key) ?? [];
+      list.push(ev);
+      groups.set(key, list);
     }
-    const laneCount = laneEnds.length;
-    for (const a of assigned) layout.set(a.id, { lane: a.lane, laneCount });
+    const keys = Array.from(groups.keys()).sort();
+    const assigned: { id: string; lane: number }[] = [];
+    let laneOffset = 0;
+    for (const key of keys) {
+      const laneEnds: number[] = [];
+      for (const ev of groups.get(key)!) {
+        let lane = laneEnds.findIndex((end) => end <= ev.startMin);
+        if (lane === -1) {
+          lane = laneEnds.length;
+          laneEnds.push(ev.endMin);
+        } else {
+          laneEnds[lane] = ev.endMin;
+        }
+        assigned.push({ id: ev.b.id, lane: laneOffset + lane });
+      }
+      laneOffset += laneEnds.length;
+    }
+    for (const a of assigned) layout.set(a.id, { lane: a.lane, laneCount: laneOffset });
     cluster = [];
     clusterMaxEnd = -Infinity;
   }
@@ -1864,6 +1883,7 @@ function layoutDayBookings(dayBookings: BookingDTO[]): Map<string, { lane: numbe
 function WeekGridView({
   weekStart,
   facilities,
+  allFacilities,
   bookings,
   facilityName,
   facilityColor,
@@ -1879,6 +1899,7 @@ function WeekGridView({
 }: {
   weekStart: Date;
   facilities: FacilityDTO[];
+  allFacilities: FacilityDTO[];
   bookings: BookingDTO[];
   facilityName: (id: string) => string;
   facilityColor: (id: string) => string;
@@ -1928,6 +1949,16 @@ function WeekGridView({
   }
 
   const totalMinutes = gridEndMin - gridStartMin;
+  // Fast hal-rækkefølge i ugeplanen: Opvisningshallen, Træningshallen, Multisalen
+  // (underfaciliteter følger deres hal), derefter alt andet.
+  const laneOrderKey = (b: BookingDTO): string => {
+    let f = allFacilities.find((x) => x.id === b.facilityId);
+    const own = f?.name ?? "";
+    for (let i = 0; i < 5 && f?.parentId; i++) f = allFacilities.find((x) => x.id === f!.parentId) ?? f;
+    const hall = (f?.name ?? own).toLowerCase();
+    const rank = hall.includes("opvisning") ? 0 : hall.includes("træning") ? 1 : hall.includes("multisal") ? 2 : 3;
+    return `${rank}|${own}|${b.facilityId}`;
+  };
   const gridHeight = totalMinutes * DAY_GRID_PX_PER_MIN;
   const hourMarks = Array.from({ length: totalMinutes / 60 + 1 }, (_, i) => gridStartMin + i * 60);
 
@@ -2060,7 +2091,8 @@ function WeekGridView({
 
   return (
     <div className="select-none">
-      <div className="overflow-x-auto pb-2">
+      {/* Egen rullezone (både lodret og vandret), så dag/dato-linjen kan fryses øverst. */}
+      <div className="overflow-auto pb-2 max-h-[calc(100vh-9rem)]">
         <div className="flex min-w-full items-start">
           {/* Tidsakse-gutter */}
           <div className="w-12 shrink-0 relative" style={{ height: gridHeight + 56 }}>
@@ -2083,10 +2115,12 @@ function WeekGridView({
               return displayDayStr === dayStr;
             });
             const nonDragged = dayBookingsAll.filter((b) => drag?.bookingId !== b.id);
-            const layout = layoutDayBookings(nonDragged);
+            const layout = layoutDayBookings(nonDragged, laneOrderKey);
             const draggedHere = drag && dayBookingsAll.some((b) => b.id === drag.bookingId) ? drag : null;
             return (
               <div key={dayStr} className="flex-1 min-w-[150px] px-1">
+                {/* Fastfrosset dag/dato-linje: forbliver synlig når man scroller ned i ugeplanen. */}
+                <div className="sticky top-0 z-30 bg-slate-50">
                 <div
                   className={`h-8 flex items-center justify-between gap-1.5 rounded-t-lg text-xs font-semibold px-2 truncate ${
                     isToday ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-800"
@@ -2107,6 +2141,7 @@ function WeekGridView({
                   </button>
                 </div>
                 <DayNoteBadges notes={notesForDay(dayStr)} onEditNote={onEditNote} />
+                </div>
                 <div
                   data-day-col={dayStr}
                   onDoubleClick={(e) => {

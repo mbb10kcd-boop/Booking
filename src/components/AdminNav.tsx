@@ -5,8 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 const LINKS = [
-  { href: "/", label: "Dashboard", icon: "⌂" },
   { href: "/kalender", label: "Kalender", icon: "▦" },
+  { href: "/dashboard", label: "Dashboard", icon: "⌂" },
   { href: "/indbakke", label: "Indbakke", icon: "✉" },
   { href: "/foreninger", label: "Foreninger", icon: "★" },
   { href: "/faciliteter", label: "Faciliteter", icon: "⌘" },
