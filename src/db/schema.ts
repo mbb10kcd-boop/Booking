@@ -199,6 +199,8 @@ export const bookings = sqliteTable("bookings", {
   movedFromFacilityId: text("moved_from_facility_id"),
   movedFromStartsAt: text("moved_from_starts_at"),
   movedFromEndsAt: text("moved_from_ends_at"),
+  // Rabatkode brugt ved en privatbooking via portalen (se discount_codes).
+  discountCode: text("discount_code"),
   // Grupperer flere bookinger oprettet SAMTIDIG som én bestilling af
   // indbyrdes ombyttelige ressourcer (fx 2 pickleball-/badmintonbaner booket
   // på én gang via den offentlige portal, se bookableGroupLabel på
@@ -499,5 +501,26 @@ export const auditLog = sqliteTable("audit_log", {
   action: text("action").notNull(),
   actorName: text("actor_name"),
   detail: text("detail"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// ---------------------------------------------------------------------------
+// Rabatkoder (privatbooking via portalen)
+// ---------------------------------------------------------------------------
+// Fx "SOMMERHUS-SOLHYTTEN" (gratis spil til sommerhusgæster) eller en
+// præmiekode. percentOff = 100 giver gratis booking (ingen betaling, dørkode
+// med det samme). amountOff = fast beløb i kr. maxUses tom = ubegrænset.
+// validFrom/validUntil er datoer (YYYY-MM-DD) for hvornår KODEN kan indløses.
+export const discountCodes = sqliteTable("discount_codes", {
+  id: text("id").primaryKey(),
+  code: text("code").notNull().unique(), // gemmes med STORE bogstaver
+  label: text("label"),
+  percentOff: real("percent_off"),
+  amountOff: real("amount_off"),
+  maxUses: integer("max_uses"),
+  usedCount: integer("used_count").notNull().default(0),
+  validFrom: text("valid_from"),
+  validUntil: text("valid_until"),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });

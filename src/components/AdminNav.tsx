@@ -14,6 +14,7 @@ const LINKS = [
   { href: "/skaerme", label: "Infoskærme", icon: "▣" },
   { href: "/notifikationer", label: "Beskeder", icon: "↻" },
   { href: "/doerkoder", label: "Dørkoder", icon: "🔑" },
+  { href: "/rabatkoder", label: "Rabatkoder", icon: "%" },
 ];
 
 const EXTERNAL_LINKS = [

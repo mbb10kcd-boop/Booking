@@ -4,6 +4,7 @@ import { eq, inArray } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
 import { maybeCreateAccessCode } from "@/lib/accessCodes";
+import { DOOR_EARLY_MINUTES } from "@/lib/doorConfig";
 import { sendNotification } from "@/lib/mailer";
 
 /**
@@ -75,7 +76,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pa
     recipient: primaryBooking.contactEmail ?? "ukendt",
     subject: code ? "Betaling modtaget - din adgangskode" : "Betaling modtaget",
     body: code
-      ? `Tak for din betaling (${facilityNames.join(", ")}). Din dørkode er ${code}, gyldig ${primaryBooking.startsAt} - ${primaryBooking.endsAt}.`
+      ? `Tak for din betaling (${facilityNames.join(", ")}). Din dørkode er ${code}, gyldig ${primaryBooking.startsAt} - ${primaryBooking.endsAt} (koden virker fra ${DOOR_EARLY_MINUTES} minutter før din tid starter).`
       : `Tak for din betaling (${facilityNames.join(", ")}).`,
   });
 

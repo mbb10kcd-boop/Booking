@@ -1,3 +1,5 @@
+import { DOOR_EARLY_MINUTES } from "@/lib/doorConfig";
+
 /**
  * Klient til WeAccess' Partner API (dørlåse/PIN-koder) - se
  * ARKITEKTUR.md. Bruges KUN fra serversiden: API-nøglen må aldrig ud i
@@ -77,6 +79,15 @@ function copenhagenOffsetMinutes(utcMs: number): number {
   const get = (type: string) => Number(parts.find((p) => p.type === type)!.value);
   const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
   return Math.round((asUtc - Math.floor(utcMs / 1000) * 1000) / 60_000);
+}
+
+/** Trækker minutter fra en lokal "YYYY-MM-DDTHH:mm[:ss]" og returnerer samme format (bruges til dørkodens forhåndsåbning). */
+export function shiftLocalMinutes(naive: string, deltaMinutes: number): string {
+  const m = naive.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) throw new Error(`Ugyldigt tidspunkt: ${naive}`);
+  const t = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6] ?? "0")) + deltaMinutes * 60_000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())}T${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}`;
 }
 
 /** "2026-10-12T17:00:00" (lokal dansk tid) -> "2026-10-12T17:00:00+02:00" */
@@ -203,7 +214,8 @@ export async function createVisit(opts: {
   endsAtLocal: string;
   externalVisitId: string;
 }): Promise<WeAccessVisit> {
-  const validFrom = localToOffsetISO(opts.startsAtLocal);
+  // Koden virker allerede DOOR_EARLY_MINUTES før bookingens start.
+  const validFrom = localToOffsetISO(shiftLocalMinutes(opts.startsAtLocal, -DOOR_EARLY_MINUTES));
   const validTo = localToOffsetISO(opts.endsAtLocal);
   const { json } = await request(
     "POST",
@@ -232,7 +244,7 @@ export async function createVisit(opts: {
 /** Flytter en eksisterende visit (koden forbliver den samme). */
 export async function updateVisit(visitId: string, startsAtLocal: string, endsAtLocal: string): Promise<void> {
   await request("PATCH", `${profilePath}/visit/${encodeURIComponent(visitId)}`, {
-    validFrom: localToOffsetISO(startsAtLocal),
+    validFrom: localToOffsetISO(shiftLocalMinutes(startsAtLocal, -DOOR_EARLY_MINUTES)),
     validTo: localToOffsetISO(endsAtLocal),
   });
 }

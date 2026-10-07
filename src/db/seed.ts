@@ -60,7 +60,23 @@ async function ensureColumns() {
     ["bookings", "moved_from_facility_id", "TEXT"],
     ["bookings", "moved_from_starts_at", "TEXT"],
     ["bookings", "moved_from_ends_at", "TEXT"],
+    ["bookings", "discount_code", "TEXT"],
   ];
+  await sqlite.execute(
+    `CREATE TABLE IF NOT EXISTS discount_codes (
+      id TEXT PRIMARY KEY NOT NULL,
+      code TEXT NOT NULL UNIQUE,
+      label TEXT,
+      percent_off REAL,
+      amount_off REAL,
+      max_uses INTEGER,
+      used_count INTEGER NOT NULL DEFAULT 0,
+      valid_from TEXT,
+      valid_until TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`
+  );
   for (const [table, column, type] of wanted) {
     const info = await sqlite.execute(`PRAGMA table_info(${table})`);
     if (info.rows.length === 0) continue; // tabellen findes ikke endnu (push opretter den)

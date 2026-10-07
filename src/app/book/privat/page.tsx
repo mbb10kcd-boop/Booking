@@ -1,5 +1,6 @@
 "use client";
 
+import { DOOR_EARLY_MINUTES } from "@/lib/doorConfig";
 import { useEffect, useMemo, useState } from "react";
 import type { BookingDTO, FacilityDTO } from "@/lib/clientTypes";
 import { formatDaDate, formatDaTime, capitalizeDaDate } from "@/lib/ai/messages";
@@ -58,6 +59,11 @@ export default function PublicBookingPortal() {
   const [error, setError] = useState<string | null>(null);
   const [bookings, setBookings] = useState<BookingDTO[]>([]);
   const [paymentId, setPaymentId] = useState<string | null>(null);
+  // Rabatkode (kun relevant når bookingen kræver betaling)
+  const [discountInput, setDiscountInput] = useState("");
+  const [discount, setDiscount] = useState<{ code: string; label: string | null; total: number; discount: number; finalTotal: number } | null>(null);
+  const [discountError, setDiscountError] = useState<string | null>(null);
+  const [discountBusy, setDiscountBusy] = useState(false);
   const [accessCode, setAccessCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -207,11 +213,17 @@ export default function PublicBookingPortal() {
     const res = await fetch(selection.kind === "single" ? "/api/portal/book" : "/api/portal/book-group", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        selection.kind === "single"
-          ? { facilityId: selection.facility.id, startsAt, endsAt, name, email, phone }
-          : { facilityIds: resolvedFacilityIds, startsAt, endsAt, name, email, phone }
-      ),
+      body: JSON.stringify({
+        ...(selection.kind === "single"
+          ? { facilityId: selection.facility.id }
+          : { facilityIds: resolvedFacilityIds }),
+        startsAt,
+        endsAt,
+        name,
+        email,
+        phone,
+        discountCode: appliedDiscount?.code ?? undefined,
+      }),
     });
     const data = await res.json();
     setBusy(false);
@@ -254,6 +266,34 @@ export default function PublicBookingPortal() {
     : referenceFacility?.pricePerHour ?? 0;
   const requiresPayment = isGroup ? !!groupMembers[0]?.requiresPayment : !!referenceFacility?.requiresPayment;
   const totalPrice = Math.round(ratePerHour * hours * 100) / 100;
+  // Rabatten gælder kun så længe prisen er den samme som da koden blev tjekket.
+  const appliedDiscount = discount && discount.total === totalPrice ? discount : null;
+  const payTotal = appliedDiscount ? appliedDiscount.finalTotal : totalPrice;
+  const freeWithCode = !!appliedDiscount && appliedDiscount.finalTotal <= 0;
+
+  async function applyDiscount() {
+    if (!selection || !discountInput.trim()) return;
+    setDiscountBusy(true);
+    setDiscountError(null);
+    const res = await fetch("/api/portal/discount", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code: discountInput,
+        facilityIds: selection.kind === "single" ? [selection.facility.id] : resolvedFacilityIds,
+        startsAt: combineDateAndTime(date, startTime),
+        endsAt: combineDateAndTime(date, endTime),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setDiscountBusy(false);
+    if (!res.ok) {
+      setDiscount(null);
+      setDiscountError(data.error ?? "Rabatkoden kunne ikke bruges");
+      return;
+    }
+    setDiscount(data);
+  }
 
   function facilityNameFor(booking: BookingDTO): string {
     return facilities.find((f) => f.id === booking.facilityId)?.name ?? "Ukendt facilitet";
@@ -603,6 +643,55 @@ export default function PublicBookingPortal() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">Telefon</label>
                 <input value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm" />
               </div>
+              {requiresPayment && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                  <label className="block text-sm font-medium text-slate-700">Rabatkode (hvis du har en)</label>
+                  {appliedDiscount ? (
+                    <div className="flex items-start justify-between gap-3 text-sm">
+                      <div>
+                        <div className="font-medium text-emerald-700">
+                          Rabatkode {appliedDiscount.code} er brugt: &minus;{appliedDiscount.discount} kr.
+                        </div>
+                        <div className="text-slate-600">
+                          Du betaler {freeWithCode ? "ingenting - din booking er gratis" : `${appliedDiscount.finalTotal} kr.`}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setDiscount(null);
+                          setDiscountInput("");
+                        }}
+                        className="text-xs text-slate-500 underline shrink-0"
+                      >
+                        Fjern
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex gap-2">
+                        <input
+                          value={discountInput}
+                          onChange={(e) => setDiscountInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") applyDiscount();
+                          }}
+                          placeholder="Indtast kode"
+                          className="flex-1 rounded-lg border border-slate-300 px-3 py-2.5 text-sm uppercase"
+                        />
+                        <button
+                          onClick={applyDiscount}
+                          disabled={discountBusy || !discountInput.trim()}
+                          className="rounded-lg bg-slate-800 text-white px-4 text-sm font-medium disabled:opacity-40"
+                        >
+                          {discountBusy ? "..." : "Brug kode"}
+                        </button>
+                      </div>
+                      {discountError && <div className="text-sm text-red-600">{discountError}</div>}
+                    </>
+                  )}
+                  <div className="text-xs text-slate-500">Pris: {payTotal} kr.</div>
+                </div>
+              )}
               <div className="flex gap-3">
                 <button onClick={() => setStep("tid")} className="flex-1 rounded-xl border border-slate-300 py-3 text-sm font-medium text-slate-700">
                   Tilbage
@@ -612,7 +701,7 @@ export default function PublicBookingPortal() {
                   onClick={submitBooking}
                   className="flex-1 rounded-xl bg-blue-600 text-white py-3 font-medium disabled:opacity-40"
                 >
-                  {busy ? "Sender..." : requiresPayment ? "Gå til betaling" : "Bekræft booking"}
+                  {busy ? "Sender..." : requiresPayment && !freeWithCode ? "Gå til betaling" : "Bekræft booking"}
                 </button>
               </div>
             </div>
@@ -631,7 +720,7 @@ export default function PublicBookingPortal() {
                 </div>
               )}
               <div className="rounded-xl bg-slate-50 border border-slate-200 py-4 text-2xl font-semibold text-slate-900">
-                {totalPrice} kr.
+                {payTotal} kr.
               </div>
               <button onClick={pay} disabled={busy} className="w-full rounded-xl bg-blue-600 text-white py-3 font-medium disabled:opacity-40">
                 {busy ? "Behandler..." : "Simulér betaling"}
@@ -657,6 +746,7 @@ export default function PublicBookingPortal() {
                 <div className="rounded-xl bg-blue-50 border border-blue-200 py-4">
                   <div className="text-xs text-blue-500 uppercase tracking-wide">Din dørkode</div>
                   <div className="text-3xl font-mono font-bold text-blue-800">{accessCode}</div>
+                  <div className="text-xs text-blue-600 mt-2">Koden virker fra {DOOR_EARLY_MINUTES} minutter før din tid starter.</div>
                 </div>
               )}
               <p className="text-xs text-slate-400">En bekræftelsesmail er sendt til {email} (se Notifikationer i administrationen).</p>

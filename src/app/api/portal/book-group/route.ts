@@ -7,6 +7,7 @@ import { logAudit } from "@/lib/audit";
 import { groupConfirmationMessage } from "@/lib/ai/messages";
 import { maybeCreateAccessCode } from "@/lib/accessCodes";
 import { sendNotification } from "@/lib/mailer";
+import { checkDiscountCode, redeemDiscount, type DiscountRow } from "@/lib/discounts";
 
 /**
  * Offentlig bookingportal: opret en bestilling af FLERE indbyrdes
@@ -56,7 +57,28 @@ export async function POST(req: NextRequest) {
   // nuværende grupper (bookableGroupLabel bruges p.t. kun til de ensprisede
   // pickleball-/badmintonbaner). Bruger den første facilitet som reference.
   const referenceFacility = facilityRows[0];
-  const requiresPayment = !!referenceFacility.requiresPayment;
+  const facilityRequiresPayment = !!referenceFacility.requiresPayment;
+  const hours = (new Date(endsAt).getTime() - new Date(startsAt).getTime()) / 3_600_000;
+  const total = Math.round(facilityRows.reduce((sum, f) => sum + (f.pricePerHour ?? 0), 0) * hours * 100) / 100;
+
+  // Rabatkode (valgfri): valideres igen her på serveren og indløses atomisk.
+  let discountRow: DiscountRow | null = null;
+  let discount = 0;
+  let finalTotal = total;
+  if (body.discountCode) {
+    if (!facilityRequiresPayment || total <= 0) {
+      return NextResponse.json({ error: "Rabatkode kan ikke bruges til denne booking" }, { status: 400 });
+    }
+    const check = await checkDiscountCode(body.discountCode, total);
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
+    if (!(await redeemDiscount(check.row))) {
+      return NextResponse.json({ error: "Rabatkoden er allerede brugt" }, { status: 400 });
+    }
+    discountRow = check.row;
+    discount = check.discount;
+    finalTotal = check.finalTotal;
+  }
+  const requiresPayment = facilityRequiresPayment && finalTotal > 0;
   const multiBookingGroupId = newId("group");
 
   const bookingIds: string[] = [];
@@ -78,6 +100,7 @@ export async function POST(req: NextRequest) {
       multiBookingGroupId,
       price: facility.pricePerHour ?? 0,
       paymentStatus: requiresPayment ? "afventer" : "ikke_paakraevet",
+      discountCode: discountRow?.code ?? null,
       source: "portal",
       createdBy: name,
     });
@@ -93,21 +116,31 @@ export async function POST(req: NextRequest) {
   let paymentId: string | null = null;
   if (requiresPayment) {
     paymentId = newId("pay");
-    const hours = (new Date(endsAt).getTime() - new Date(startsAt).getTime()) / 3_600_000;
-    const totalAmount =
-      facilityRows.reduce((sum, f) => sum + (f.pricePerHour ?? 0), 0) * hours;
     // Betalingen dækker HELE gruppen, men peger (af skemamæssige årsager, se
     // schema.ts) kun på den første booking - se /api/portal/pay/[paymentId],
     // som ved betaling opdaterer ALLE bookinger i samme multiBookingGroupId.
     await db.insert(schema.payments).values({
       id: paymentId,
       bookingId: bookingIds[0],
-      amount: Math.round(totalAmount * 100) / 100,
+      amount: finalTotal,
+      discount,
       vat: 0,
       status: "afventer",
       provider: "ikke_valgt",
     });
   } else {
+    if (discountRow) {
+      await db.insert(schema.payments).values({
+        id: newId("pay"),
+        bookingId: bookingIds[0],
+        amount: 0,
+        discount,
+        vat: 0,
+        status: "betalt",
+        provider: "rabatkode",
+        providerRef: discountRow.code,
+      });
+    }
     // Ingen betaling påkrævet - generér med det samme ÉN fælles adgangskode
     // til hele gruppen (de deler jo samme fysiske dør), i stedet for én kode
     // pr. bane.

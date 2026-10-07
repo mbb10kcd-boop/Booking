@@ -7,6 +7,7 @@ import { logAudit } from "@/lib/audit";
 import { confirmationMessage } from "@/lib/ai/messages";
 import { maybeCreateAccessCode } from "@/lib/accessCodes";
 import { sendNotification } from "@/lib/mailer";
+import { checkDiscountCode, redeemDiscount, type DiscountRow } from "@/lib/discounts";
 
 /** Offentlig bookingportal: opret en booking som ekstern gæst (privatperson) */
 export async function POST(req: NextRequest) {
@@ -31,7 +32,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Tiden er desværre ikke længere ledig" }, { status: 409 });
   }
 
-  const requiresPayment = !!facility.requiresPayment;
+  const facilityRequiresPayment = !!facility.requiresPayment;
+  const hours = (new Date(endsAt).getTime() - new Date(startsAt).getTime()) / 3_600_000;
+  const total = Math.round((facility.pricePerHour ?? 0) * hours * 100) / 100;
+
+  // Rabatkode (valgfri): valideres igen her på serveren og indløses atomisk.
+  let discountRow: DiscountRow | null = null;
+  let discount = 0;
+  let finalTotal = total;
+  if (body.discountCode) {
+    if (!facilityRequiresPayment || total <= 0) {
+      return NextResponse.json({ error: "Rabatkode kan ikke bruges til denne booking" }, { status: 400 });
+    }
+    const check = await checkDiscountCode(body.discountCode, total);
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 });
+    if (!(await redeemDiscount(check.row))) {
+      return NextResponse.json({ error: "Rabatkoden er allerede brugt" }, { status: 400 });
+    }
+    discountRow = check.row;
+    discount = check.discount;
+    finalTotal = check.finalTotal;
+  }
+  // Betaling kræves kun hvis der er noget at betale efter rabat.
+  const requiresPayment = facilityRequiresPayment && finalTotal > 0;
   const id = newId("book");
   await db.insert(schema.bookings).values({
     id,
@@ -45,6 +68,7 @@ export async function POST(req: NextRequest) {
     status: requiresPayment ? "midlertidig" : "bekraeftet",
     price: facility.pricePerHour ?? 0,
     paymentStatus: requiresPayment ? "afventer" : "ikke_paakraevet",
+    discountCode: discountRow?.code ?? null,
     source: "portal",
     createdBy: name,
   });
@@ -52,11 +76,11 @@ export async function POST(req: NextRequest) {
   let paymentId: string | null = null;
   if (requiresPayment) {
     paymentId = newId("pay");
-    const hours = (new Date(endsAt).getTime() - new Date(startsAt).getTime()) / 3_600_000;
     await db.insert(schema.payments).values({
       id: paymentId,
       bookingId: id,
-      amount: Math.round((facility.pricePerHour ?? 0) * hours * 100) / 100,
+      amount: finalTotal,
+      discount,
       vat: 0,
       status: "afventer",
       provider: "ikke_valgt",
@@ -64,6 +88,19 @@ export async function POST(req: NextRequest) {
     // Adgangskode genereres først når betalingen er gennemført - se
     // /api/portal/pay/[paymentId].
   } else {
+    if (discountRow) {
+      // Gratis via rabatkode: registrér det som en (nul-)betaling til bogføringen.
+      await db.insert(schema.payments).values({
+        id: newId("pay"),
+        bookingId: id,
+        amount: 0,
+        discount,
+        vat: 0,
+        status: "betalt",
+        provider: "rabatkode",
+        providerRef: discountRow.code,
+      });
+    }
     // Ingen betaling påkrævet -> generér ev. adgangskode med det samme.
     // Kun relevant for privatpersoner i et lokale med kodedør (Træningshallen
     // eller Multisalen) - se src/lib/accessCodes.ts. Denne booking har ingen
@@ -89,7 +126,13 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  await logAudit("booking", id, "oprettet", "Oprettet via offentlig bookingportal", name);
+  await logAudit(
+    "booking",
+    id,
+    "oprettet",
+    discountRow ? `Oprettet via offentlig bookingportal med rabatkode ${discountRow.code} (-${discount} kr.)` : "Oprettet via offentlig bookingportal",
+    name
+  );
 
   const [finalBooking] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, id));
   return NextResponse.json({ booking: finalBooking, requiresPayment, paymentId }, { status: 201 });

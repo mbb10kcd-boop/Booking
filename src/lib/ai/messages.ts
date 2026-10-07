@@ -6,6 +6,8 @@
 
 import { weekdayName } from "@/lib/statusLabels";
 
+import { DOOR_EARLY_MINUTES } from "@/lib/doorConfig";
+
 export function formatDaDate(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString("da-DK", {
@@ -59,6 +61,7 @@ ${formatDaDate(opts.startsAt)}
 ${formatDaTime(opts.startsAt)} - ${formatDaTime(opts.endsAt)}
 ${opts.accessCode ? `
 Dørkode: ${opts.accessCode}
+Koden virker fra ${DOOR_EARLY_MINUTES} minutter før jeres tid starter.
 ` : ""}
 Vi glæder os til at se jer.
 
@@ -89,6 +92,7 @@ ${formatDaDate(opts.startsAt)}
 ${formatDaTime(opts.startsAt)} - ${formatDaTime(opts.endsAt)}
 ${opts.accessCode ? `
 Dørkode: ${opts.accessCode}
+Koden virker fra ${DOOR_EARLY_MINUTES} minutter før jeres tid starter.
 ` : ""}
 Vi glæder os til at se jer.
 
