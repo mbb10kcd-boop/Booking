@@ -1,0 +1,10 @@
+{
+  "name": "Pedel – Grenaa Idrætscenter",
+  "short_name": "Pedel",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f5f6f4",
+  "theme_color": "#0f5b86",
+  "lang": "da",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

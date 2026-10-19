@@ -42,3 +42,16 @@ Next.js (App Router, TypeScript), Tailwind CSS, Drizzle ORM + SQLite (se
 ARKITEKTUR.md for hvorfor Drizzle blev valgt frem for Prisma i dette miljø).
 
 <!-- test: bekræfter direkte push fra Martins computer virker -->
+
+
+## Pedel-app (Netlify)
+
+Mobil-først app til pedeller i mappen `pedel-app/` (statisk HTML/JS/CSS, ingen build). Den bruger det eksisterende
+bookingsystem som backend - ingen ekstra database og ingen hemmeligheder i frontend.
+
+* **Netlify:** peg et nyt site på dette repo. `netlify.toml` i roden udgiver `pedel-app/` uden build-kommando og
+  videresender `/api/*` til `https://booking.grenaaic.dk` (så login-cookien ligger på Netlify-domænet; ingen CORS).
+  Hvis bookingsystemet flytter adresse, rettes `to = ...` i `netlify.toml`.
+* **Login:** samme brugere som i bookingsystemet (rollen "pedel" findes allerede).
+* **Demo:** knappen "Prøv med demo-data" på login-siden bruger opdigtede data i hukommelsen og rører ikke produktionsdata.
+* **Lokalt:** `npx serve pedel-app` (kun demo-tilstand virker uden `/api`-proxy).

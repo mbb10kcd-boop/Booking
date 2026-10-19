@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Statisk pedel-app (ren browser-JS til Netlify, ikke en del af Next-projektet)
+    "pedel-app/**",
   ]),
 ]);
 

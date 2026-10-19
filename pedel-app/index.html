@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f5b86">
+  <meta name="robots" content="noindex">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Pedel">
+  <title>Pedel – Grenaa Idrætscenter</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="demo-banner" class="demo-banner" hidden>DEMO – eksempeldata. Ingen af disse bookinger er rigtige.</div>
+  <div id="app" class="app" aria-live="polite">
+    <p class="boot">Indlæser …</p>
+  </div>
+  <div id="toasts" class="toasts" aria-live="polite" role="status"></div>
+  <div id="modal-root"></div>
+  <noscript><p style="padding:2rem">Pedel-appen kræver JavaScript.</p></noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
