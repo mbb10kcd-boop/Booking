@@ -1,8 +1,14 @@
 # Netlify-opsætning for pedel-appen (statisk frontend, ingen build).
 # Alle /api/*-kald sendes videre til det eksisterende bookingsystem, så login-cookien
 # ligger på appens eget domæne (ingen CORS, ingen hemmeligheder i frontend).
+# Repoet indeholder også selve bookingsystemet (Next.js), som kører på Render - IKKE på Netlify.
+# Netlify må derfor ikke forsøge at bygge det eller installere sit Next.js-plugin (det giver "plugin error").
 [build]
   publish = "pedel-app"
+  command = "echo 'Ingen build - statisk app'"
+
+[build.environment]
+  NETLIFY_NEXT_PLUGIN_SKIP = "true"
 
 [[redirects]]
   from = "/api/*"
