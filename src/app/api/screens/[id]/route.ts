@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
-import { eq } from "drizzle-orm";
+import { and, eq, gte, lte, notInArray } from "drizzle-orm";
 import { localISODate } from "@/lib/date";
+import { dayTimeLabel } from "@/lib/multiday";
 
 /**
  * Returnerer dagens program for en given infoskærm, klar til visning.
@@ -36,15 +37,21 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const pinnedSet = new Set(pinnedFacilityIds);
 
   const todayStr = localISODate();
-  const allBookings = await db.select().from(schema.bookings);
+  // Alle bookinger der optager i dag - også flerdagsbookinger der startede en
+  // tidligere dag (fx en turnering), filtreret i databasen.
+  const allBookings = await db
+    .select()
+    .from(schema.bookings)
+    .where(
+      and(
+        gte(schema.bookings.endsAt, `${todayStr}T00:00:00`),
+        lte(schema.bookings.startsAt, `${todayStr}T23:59:59`),
+        notInArray(schema.bookings.status, ["aflyst", "afvist"])
+      )
+    );
   const todaysBookings = allBookings
-    .filter(
-      (b) =>
-        scopeFacilityIds.includes(b.facilityId) &&
-        b.startsAt.slice(0, 10) === todayStr &&
-        b.status !== "aflyst" &&
-        b.status !== "afvist"
-    )
+    .filter((b) => scopeFacilityIds.includes(b.facilityId) && b.endsAt > `${todayStr}T00:00:00`)
+    .map((b) => ({ ...b, timeLabel: dayTimeLabel(b, todayStr) }))
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 
   const bookedFacilityIds = new Set(todaysBookings.map((b) => b.facilityId));

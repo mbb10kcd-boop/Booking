@@ -6,7 +6,7 @@ import { nowLocalDateTimeString } from "@/lib/date";
 
 interface FacilityBlock {
   facility: { id: string; name: string; color: string | null } | undefined;
-  bookings: { id: string; title: string; startsAt: string; endsAt: string }[];
+  bookings: { id: string; title: string; startsAt: string; endsAt: string; timeLabel?: string }[];
 }
 
 // Skærmene hænger fast og kan ikke scrolles (Martin), så antallet af
@@ -118,7 +118,7 @@ export default function InfoScreenPage({ params }: { params: Promise<{ id: strin
                     >
                       <span className="text-xl font-medium truncate pr-4">{b.title}</span>
                       <span className="text-xl font-mono tabular-nums shrink-0">
-                        {formatDaTime(b.startsAt)} - {formatDaTime(b.endsAt)}
+                        {b.timeLabel && b.timeLabel.includes(" ") ? b.timeLabel : `${formatDaTime(b.startsAt)} - ${formatDaTime(b.endsAt)}`}
                       </span>
                     </div>
                   );

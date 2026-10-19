@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db";
+import { and, gte, lte, notInArray } from "drizzle-orm";
 import { addDays, localISODate, startOfWeek } from "@/lib/date";
+import { bookingOnDay } from "@/lib/multiday";
 
 /**
  * Pedelvisningens ugeprogram: ?start=YYYY-MM-DD angiver en vilkårlig dato i
@@ -21,15 +23,22 @@ export async function GET(req: NextRequest) {
   const weekEndStr = localISODate(addDays(weekStart, 6));
 
   const facilities = await db.select().from(schema.facilities);
-  const bookings = await db.select().from(schema.bookings);
+  // Bookinger der optager mindst én dag i ugen (også flerdagsbookinger der starter før ugen).
+  const bookings = await db
+    .select()
+    .from(schema.bookings)
+    .where(
+      and(
+        gte(schema.bookings.endsAt, `${weekStartStr}T00:00:00`),
+        lte(schema.bookings.startsAt, `${weekEndStr}T23:59:59`),
+        notInArray(schema.bookings.status, ["aflyst", "afvist"])
+      )
+    );
   const orgs = await db.select().from(schema.organizations);
   const notes = await db.select().from(schema.dayNotes);
 
   const weekBookings = bookings
-    .filter((b) => {
-      const d = b.startsAt.slice(0, 10);
-      return d >= weekStartStr && d <= weekEndStr && b.status !== "aflyst" && b.status !== "afvist";
-    })
+    .filter((b) => Array.from({ length: 7 }, (_, i) => localISODate(addDays(weekStart, i))).some((d) => bookingOnDay(b, d)))
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     .map((b) => ({
       ...b,

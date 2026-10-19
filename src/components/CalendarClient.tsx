@@ -1,5 +1,6 @@
 "use client";
 
+import { bookingLastDay, bookingOnDay, dayTimeLabel, isMultiDay } from "@/lib/multiday";
 import {
   useEffect,
   useMemo,
@@ -69,6 +70,24 @@ function toNaiveDateTimeString(d: Date): string {
 
 function minutesOfDay(d: Date): number {
   return d.getHours() * 60 + d.getMinutes();
+}
+
+/**
+ * Den del af bookingen der ligger på `dayStr`, i minutter siden midnat.
+ * Første dag starter ved bookingens starttid, sidste dag slutter ved
+ * sluttiden, og dage midt imellem fylder hele dagen (fra `gridStartMin`).
+ */
+function daySegment(
+  b: BookingDTO,
+  dayStr: string,
+  gridStartMin: number = DAY_GRID_START_MIN
+): { startMin: number; endMin: number } {
+  const startMin = dayStr === b.startsAt.slice(0, 10) ? minutesOfDay(parseNaiveDateTime(b.startsAt)) : gridStartMin;
+  const endMin =
+    dayStr === bookingLastDay(b) && b.endsAt.slice(0, 10) === dayStr
+      ? minutesOfDay(parseNaiveDateTime(b.endsAt))
+      : 24 * 60;
+  return { startMin, endMin };
 }
 
 /** Bygger en naiv dato-tid-streng for `dateStr` ("YYYY-MM-DD") + `minutes` minutter siden midnat. */
@@ -1052,6 +1071,7 @@ function BookingCard({
   onSelect,
   onContextMenu,
   compact,
+  dayStr,
 }: {
   booking: BookingDTO;
   facilityName: string;
@@ -1060,6 +1080,8 @@ function BookingCard({
   onSelect: (b: BookingDTO) => void;
   onContextMenu?: (e: ReactMouseEvent, b: BookingDTO) => void;
   compact?: boolean;
+  /** Den dag kortet vises under - bruges til tidsteksten ved flerdagsbookinger. */
+  dayStr?: string;
 }) {
   const isSeason = !!booking.seasonGroupId;
   return (
@@ -1090,7 +1112,7 @@ function BookingCard({
       </div>
       {!compact && <div className="opacity-75">{facilityName}</div>}
       <div className="opacity-75">
-        {formatDaTime(booking.startsAt)}-{formatDaTime(booking.endsAt)}
+        {dayStr ? dayTimeLabel(booking, dayStr) : `${formatDaTime(booking.startsAt)}-${formatDaTime(booking.endsAt)}`}
       </div>
     </button>
   );
@@ -1113,9 +1135,14 @@ function ListView({
 }) {
   const byDay = new Map<string, BookingDTO[]>();
   for (const b of bookings) {
-    const day = b.startsAt.slice(0, 10);
-    if (!byDay.has(day)) byDay.set(day, []);
-    byDay.get(day)!.push(b);
+    // En flerdagsbooking vises under hver af de dage den optager.
+    const last = bookingLastDay(b);
+    let day = b.startsAt.slice(0, 10);
+    for (let guard = 0; day <= last && guard < 62; guard++) {
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day)!.push(b);
+      day = localISODate(addDays(new Date(`${day}T00:00:00`), 1));
+    }
   }
   const days = [...byDay.keys()].sort();
 
@@ -1160,9 +1187,7 @@ function ListView({
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm font-medium text-slate-600">
-                    {formatDaTime(b.startsAt)}-{formatDaTime(b.endsAt)}
-                  </div>
+                  <div className="text-sm font-medium text-slate-600">{dayTimeLabel(b, day)}</div>
                   <div className="flex items-center justify-end gap-1 mt-0.5">
                     <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full border ${BOOKING_STATUS_CLASSES[b.status]}`}>
                       {BOOKING_STATUS_LABELS[b.status]}
@@ -1219,7 +1244,7 @@ function WeekView({
       {days.map((d, i) => {
         const dayStr = localISODate(d);
         const dayBookings = bookings
-          .filter((b) => b.startsAt.slice(0, 10) === dayStr)
+          .filter((b) => bookingOnDay(b, dayStr))
           .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
         const isToday = dayStr === localISODate();
         return (
@@ -1261,6 +1286,7 @@ function WeekView({
                   onSelect={onSelect}
                   onContextMenu={onContextMenu}
                   compact
+                  dayStr={dayStr}
                 />
               ))}
             </div>
@@ -1357,7 +1383,7 @@ function FacilityWeekView({
               {days.map((d, i) => {
                 const dayStr = localISODate(d);
                 const dayBookings = bookings
-                  .filter((b) => b.facilityId === f.id && b.startsAt.slice(0, 10) === dayStr)
+                  .filter((b) => b.facilityId === f.id && bookingOnDay(b, dayStr))
                   .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
                 const isToday = dayStr === localISODate();
                 return (
@@ -1395,9 +1421,7 @@ function FacilityWeekView({
                             {b.seasonGroupId && <span className="mr-0.5">↻</span>}
                             {b.title}
                           </div>
-                          <div className="opacity-75">
-                            {formatDaTime(b.startsAt)}-{formatDaTime(b.endsAt)}
-                          </div>
+                          <div className="opacity-75">{dayTimeLabel(b, dayStr)}</div>
                         </button>
                       ))}
                     </div>
@@ -1492,7 +1516,7 @@ function DayGridView({
   }, [drag !== null]);
 
   const dayBookings = bookings.filter(
-    (b) => b.startsAt.slice(0, 10) === dayStr && b.status !== "aflyst" && b.status !== "afvist"
+    (b) => bookingOnDay(b, dayStr) && b.status !== "aflyst" && b.status !== "afvist"
   );
 
   // Tidsaksens grænser udvides automatisk, hvis en booking rækker udenfor
@@ -1500,9 +1524,7 @@ function DayGridView({
   let gridStartMin = DAY_GRID_START_MIN;
   let gridEndMin = DAY_GRID_END_MIN;
   for (const b of dayBookings) {
-    const s = minutesOfDay(parseNaiveDateTime(b.startsAt));
-    const endDate = parseNaiveDateTime(b.endsAt);
-    const e = endDate.toDateString() === day.toDateString() ? minutesOfDay(endDate) : 24 * 60;
+    const { startMin: s, endMin: e } = daySegment(b, dayStr);
     if (s < gridStartMin) gridStartMin = Math.floor(s / 60) * 60;
     if (e > gridEndMin) gridEndMin = Math.ceil(e / 60) * 60;
   }
@@ -1517,6 +1539,8 @@ function DayGridView({
     // "klik uden bevægelse" i onUp og åbne detalje-boksen i stedet for at
     // lade den almindelige onContextMenu-håndtering vise højreklik-menuen.
     if (e.button !== 0) return;
+    // Flerdagsbookinger kan ikke trækkes her (klik åbner dem) - ændres via redigering.
+    if (isMultiDay(booking)) return;
     e.stopPropagation();
     e.preventDefault();
     const start = parseNaiveDateTime(booking.startsAt);
@@ -1712,14 +1736,16 @@ function DayGridView({
                 })
                 .map((b) => {
                   const isDragged = drag?.bookingId === b.id;
-                  const startMin = isDragged ? (drag as DayDragState).currentStartMin : minutesOfDay(parseNaiveDateTime(b.startsAt));
-                  const endMin = isDragged ? (drag as DayDragState).currentEndMin : minutesOfDay(parseNaiveDateTime(b.endsAt));
+                  const seg = daySegment(b, dayStr, gridStartMin);
+                  const startMin = isDragged ? (drag as DayDragState).currentStartMin : seg.startMin;
+                  const endMin = isDragged ? (drag as DayDragState).currentEndMin : seg.endMin;
                   const top = (startMin - gridStartMin) * DAY_GRID_PX_PER_MIN;
                   const height = Math.max(22, (endMin - startMin) * DAY_GRID_PX_PER_MIN);
                   return (
                     <div
                       key={b.id}
                       onPointerDown={(e) => startDrag(e, b, "move")}
+                      onClick={isMultiDay(b) ? () => onSelect(b) : undefined}
                       onContextMenu={(e) => onContextMenu(e, b)}
                       title={bookingTooltip(b, f.name, organizationName(b.organizationId))}
                       style={{
@@ -1747,8 +1773,14 @@ function DayGridView({
                         {b.title}
                       </div>
                       <div className="opacity-75 leading-tight">
-                        {String(Math.floor(startMin / 60) % 24).padStart(2, "0")}.{String(startMin % 60).padStart(2, "0")}-
-                        {String(Math.floor(endMin / 60) % 24).padStart(2, "0")}.{String(endMin % 60).padStart(2, "0")}
+                        {isMultiDay(b) ? (
+                          dayTimeLabel(b, dayStr)
+                        ) : (
+                          <>
+                            {String(Math.floor(startMin / 60) % 24).padStart(2, "0")}.{String(startMin % 60).padStart(2, "0")}-
+                            {String(Math.floor(endMin / 60) % 24).padStart(2, "0")}.{String(endMin % 60).padStart(2, "0")}
+                          </>
+                        )}
                       </div>
                       <div
                         onPointerDown={(e) => startDrag(e, b, "resize-bottom")}
@@ -1797,14 +1829,12 @@ interface WeekDragState {
  */
 function layoutDayBookings(
   dayBookings: BookingDTO[],
-  orderKey: (b: BookingDTO) => string
+  orderKey: (b: BookingDTO) => string,
+  dayStr: string
 ): Map<string, { lane: number; laneCount: number }> {
   const events = dayBookings
     .map((b) => {
-      const startMin = minutesOfDay(parseNaiveDateTime(b.startsAt));
-      const startDay = b.startsAt.slice(0, 10);
-      const endDay = b.endsAt.slice(0, 10);
-      const endMin = endDay === startDay ? minutesOfDay(parseNaiveDateTime(b.endsAt)) : 24 * 60;
+      const { startMin, endMin } = daySegment(b, dayStr);
       return { b, startMin, endMin };
     })
     .sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
@@ -1934,16 +1964,14 @@ function WeekGridView({
   }, [drag !== null]);
 
   const weekBookings = bookings.filter(
-    (b) => dayStrs.includes(b.startsAt.slice(0, 10)) && b.status !== "aflyst" && b.status !== "afvist"
+    (b) => dayStrs.some((d) => bookingOnDay(b, d)) && b.status !== "aflyst" && b.status !== "afvist"
   );
 
   let gridStartMin = DAY_GRID_START_MIN;
   let gridEndMin = DAY_GRID_END_MIN;
   for (const b of weekBookings) {
-    const s = minutesOfDay(parseNaiveDateTime(b.startsAt));
-    const startDay = b.startsAt.slice(0, 10);
-    const endDay = b.endsAt.slice(0, 10);
-    const e = endDay === startDay ? minutesOfDay(parseNaiveDateTime(b.endsAt)) : 24 * 60;
+    const s = Math.min(...dayStrs.filter((d) => bookingOnDay(b, d)).map((d) => daySegment(b, d).startMin));
+    const e = Math.max(...dayStrs.filter((d) => bookingOnDay(b, d)).map((d) => daySegment(b, d).endMin));
     if (s < gridStartMin) gridStartMin = Math.floor(s / 60) * 60;
     if (e > gridEndMin) gridEndMin = Math.ceil(e / 60) * 60;
   }
@@ -1964,6 +1992,8 @@ function WeekGridView({
 
   function startDrag(e: ReactPointerEvent, booking: BookingDTO, mode: DayDragMode) {
     if (e.button !== 0) return;
+    // Flerdagsbookinger kan ikke trækkes her (klik åbner dem) - ændres via redigering.
+    if (isMultiDay(booking)) return;
     e.stopPropagation();
     e.preventDefault();
     const start = parseNaiveDateTime(booking.startsAt);
@@ -2111,11 +2141,10 @@ function WeekGridView({
             const isToday = dayStr === localISODate();
             const dayBookingsAll = weekBookings.filter((b) => {
               const isDragged = drag?.bookingId === b.id;
-              const displayDayStr = isDragged ? (drag as WeekDragState).currentDayStr : b.startsAt.slice(0, 10);
-              return displayDayStr === dayStr;
+              return isDragged ? (drag as WeekDragState).currentDayStr === dayStr : bookingOnDay(b, dayStr);
             });
             const nonDragged = dayBookingsAll.filter((b) => drag?.bookingId !== b.id);
-            const layout = layoutDayBookings(nonDragged, laneOrderKey);
+            const layout = layoutDayBookings(nonDragged, laneOrderKey, dayStr);
             const draggedHere = drag && dayBookingsAll.some((b) => b.id === drag.bookingId) ? drag : null;
             return (
               <div key={dayStr} className="flex-1 min-w-[150px] px-1">
@@ -2164,9 +2193,7 @@ function WeekGridView({
                     />
                   ))}
                   {nonDragged.map((b) => {
-                    const startMin = minutesOfDay(parseNaiveDateTime(b.startsAt));
-                    const endDay = b.endsAt.slice(0, 10);
-                    const endMin = endDay === dayStr ? minutesOfDay(parseNaiveDateTime(b.endsAt)) : 24 * 60;
+                    const { startMin, endMin } = daySegment(b, dayStr, gridStartMin);
                     const top = (startMin - gridStartMin) * DAY_GRID_PX_PER_MIN;
                     const height = Math.max(20, (endMin - startMin) * DAY_GRID_PX_PER_MIN);
                     const laneInfo = layout.get(b.id) ?? { lane: 0, laneCount: 1 };
@@ -2176,6 +2203,7 @@ function WeekGridView({
                       <div
                         key={b.id}
                         onPointerDown={(e) => startDrag(e, b, "move")}
+                        onClick={isMultiDay(b) ? () => onSelect(b) : undefined}
                         onContextMenu={(e) => onContextMenu(e, b)}
                         title={bookingTooltip(b, facilityName(b.facilityId), organizationName(b.organizationId))}
                         style={{
@@ -2204,8 +2232,14 @@ function WeekGridView({
                         </div>
                         <div className="opacity-75 leading-tight truncate">{facilityName(b.facilityId)}</div>
                         <div className="opacity-75 leading-tight">
-                          {String(Math.floor(startMin / 60) % 24).padStart(2, "0")}.{String(startMin % 60).padStart(2, "0")}-
-                          {String(Math.floor(endMin / 60) % 24).padStart(2, "0")}.{String(endMin % 60).padStart(2, "0")}
+                          {isMultiDay(b) ? (
+                            dayTimeLabel(b, dayStr)
+                          ) : (
+                            <>
+                              {String(Math.floor(startMin / 60) % 24).padStart(2, "0")}.{String(startMin % 60).padStart(2, "0")}-
+                              {String(Math.floor(endMin / 60) % 24).padStart(2, "0")}.{String(endMin % 60).padStart(2, "0")}
+                            </>
+                          )}
                         </div>
                         <div
                           onPointerDown={(e) => startDrag(e, b, "resize-bottom")}
@@ -2481,7 +2515,7 @@ function MonthView({
         {cells.map((d, i) => {
           if (!d) return <div key={i} className="border-b border-r border-slate-100 min-h-[90px] bg-slate-50/50" />;
           const dayStr = localISODate(d);
-          const dayBookings = bookings.filter((b) => b.startsAt.slice(0, 10) === dayStr);
+          const dayBookings = bookings.filter((b) => bookingOnDay(b, dayStr));
           const notes = notesForDay(dayStr);
           const isToday = dayStr === localISODate();
           return (

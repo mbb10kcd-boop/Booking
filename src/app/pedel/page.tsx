@@ -5,8 +5,13 @@ import Link from "next/link";
 import { capitalizeDaDate, formatDaDateShort, formatDaTime } from "@/lib/ai/messages";
 import { addDays, isoWeekNumber, localISODate, startOfWeek } from "@/lib/date";
 import { BOOKING_STATUS_CLASSES, BOOKING_STATUS_LABELS, SEASON_BADGE_CLASSES, SEASON_BADGE_LABEL } from "@/lib/statusLabels";
+import { bookingOnDay, dayTimeLabel, isMultiDay } from "@/lib/multiday";
 import { BookingFormModal } from "@/components/BookingFormModal";
 import type { BookingDTO, DayNoteDTO, FacilityDTO, OrganizationDTO } from "@/lib/clientTypes";
+
+function multiLabel(b: { startsAt: string; endsAt: string }, dayStr: string): string | null {
+  return isMultiDay(b) ? dayTimeLabel(b, dayStr) : null;
+}
 
 // /api/pedel/week returnerer en fuld booking-række (spredt) plus disse to
 // ekstra felter - så WeekBooking kan bruges alle steder en BookingDTO kan.
@@ -83,7 +88,7 @@ export default function PedelPage() {
     return {
       dateStr,
       isToday: dateStr === todayStr,
-      items: bookings.filter((b) => b.startsAt.slice(0, 10) === dateStr),
+      items: bookings.filter((b) => bookingOnDay(b, dateStr)),
       notes: dayNotes.filter((n) => n.date === dateStr),
     };
   });
@@ -176,7 +181,7 @@ export default function PedelPage() {
                         >
                           <div>
                             <div className="text-lg font-semibold text-slate-900">
-                              {formatDaTime(b.startsAt)} - {formatDaTime(b.endsAt)}
+                              {multiLabel(b, dateStr) ?? `${formatDaTime(b.startsAt)} - ${formatDaTime(b.endsAt)}`}
                             </div>
                             <div className="text-sm text-slate-600">
                               {b.seasonGroupId && (
@@ -288,7 +293,7 @@ export default function PedelPage() {
                   {items.map((b) => (
                     <tr key={b.id} className="border-b border-slate-400 align-top">
                       <td className="py-1 pr-2 whitespace-nowrap font-medium">
-                        {formatDaTime(b.startsAt)}-{formatDaTime(b.endsAt)}
+                        {multiLabel(b, dateStr) ?? `${formatDaTime(b.startsAt)}-${formatDaTime(b.endsAt)}`}
                       </td>
                       <td className="py-1 pr-2">{b.facilityName}</td>
                       <td className="py-1 pr-2">
