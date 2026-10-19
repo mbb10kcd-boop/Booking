@@ -179,7 +179,8 @@ function recentChanges(all) {
   for (const b of all) {
     const r = recency(b);
     if (isCancelled(b)) {
-      const at = b.cancelledAt || r.updated;
+      // Tidsstemplet bruges kun, hvis det ikke ligger i fremtiden (ældre importerede aflysninger har en datoværdi i fremtiden).
+      const at = b.cancelledAt && b.cancelledAt <= now ? b.cancelledAt : r.updated;
       if (at && minutesBetween(at, now) < 7 * 1440 && b.endsAt > now) ev.push({ type: "cancel", at, b });
     } else if (r.created && minutesBetween(r.created, now) < 7 * 1440) {
       ev.push({ type: "new", at: r.created, b });
