@@ -242,7 +242,7 @@ function scheduleRefresh() {
 }
 
 // ---------- Bookinger (oversigt, søgning, filtre) ----------
-const listState = { view: "dag", date: null, q: "", fac: "", status: "aktive", showCount: 60 };
+const listState = { view: "dag", date: null, q: "", fac: "", status: "aktive", showCount: 60, scrollToday: false };
 const cache = { key: "", at: 0, rows: [] };
 let listNotes = [];
 
@@ -298,6 +298,7 @@ async function renderList(query) {
   const token = bust();
   const p = new URLSearchParams(query || "");
   if (p.get("view")) listState.view = p.get("view");
+  listState.scrollToday = listState.view === "uge";
   if (p.get("date")) listState.date = p.get("date");
   if (!listState.date) listState.date = todayStr();
   let facOptions = "";
@@ -384,7 +385,7 @@ function renderResults(rows, from, to, search) {
     const slice = (arr) => { const room = Math.max(0, st.showCount - shown); const out = arr.slice(0, room); shown += out.length; return out; };
     const a = slice(act), c = slice(can);
     if (shown >= st.showCount && !a.length && !c.length) break;
-    html += `<section class="day ${d === todayStr() ? "is-today" : ""}"><h2 class="day-h"><span>${esc(relativeDayLabel(d))}</span>${st.view === "dag" && !search ? "" : `<small>${esc(fmtDateShort(d))}</small>`}<span class="count">${act.length}</span></h2>
+    html += `<section class="day ${d === todayStr() ? "is-today" : ""} ${d < todayStr() ? "is-past" : ""}"><h2 class="day-h"><span>${esc(relativeDayLabel(d))}</span>${st.view === "dag" && !search ? "" : `<small>${esc(fmtDateShort(d))}</small>`}<span class="count">${act.length}</span></h2>
       ${listNotes.filter((n) => n.date === d).map((n) => `<div class="day-note">${icon("flag")}<div><strong>Dagsnote</strong> ${esc(n.text)}</div></div>`).join("")}
       ${items.length === 0 ? `<p class="muted pad">Ingen bookinger</p>` : ""}
       <div class="cards">${a.map((b) => card(b, d)).join("")}</div>
@@ -393,6 +394,14 @@ function renderResults(rows, from, to, search) {
   const total = [...days.values()].reduce((n, a2) => n + a2.length, 0);
   if (total > shown) html += `<button class="btn block" data-more="1">Vis flere (${total - shown} mere)</button>`;
   res.innerHTML = html + hint;
+  // Ugevisning starter på dagen i dag (tidligere dage ligger lige ovenover og kan bladres frem).
+  if (st.scrollToday) {
+    st.scrollToday = false;
+    if (!search && st.view === "uge") {
+      const el = res.querySelector(".day.is-today");
+      if (el) requestAnimationFrame(() => el.scrollIntoView({ block: "start" }));
+    }
+  }
 }
 
 function monthGrid(rows, monthFirst) {
@@ -558,9 +567,9 @@ document.addEventListener("click", async (e) => {
     location.hash = "#/login"; return renderLogin();
   }
   if ("retry" in d || "reload" in d) { invalidateCache(); return route(); }
-  if ("view" in d) { listState.view = d.view; return updateList(); }
-  if ("nav" in d) { shiftDate(listState, Number(d.nav)); return updateList(); }
-  if ("today" in d) { listState.date = todayStr(); return updateList(); }
+  if ("view" in d) { listState.view = d.view; listState.scrollToday = d.view === "uge"; return updateList(); }
+  if ("nav" in d) { shiftDate(listState, Number(d.nav)); listState.scrollToday = listState.view === "uge"; return updateList(); }
+  if ("today" in d) { listState.date = todayStr(); listState.scrollToday = listState.view === "uge"; return updateList(); }
   if ("goday" in d) { listState.date = d.goday; listState.view = "dag"; return updateList(); }
   if ("more" in d) { listState.showCount += 60; return updateList(); }
   if ("clearSearch" in d) { listState.q = ""; const q = $("#q"); if (q) q.value = ""; return updateList(); }
