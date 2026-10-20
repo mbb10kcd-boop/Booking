@@ -1,8 +1,6 @@
 // API-lag. Kalder det EKSISTERENDE bookingsystem (samme endpoints som admin-kalenderen).
 // På Netlify videresendes /api/* til bookingsystemet (se netlify.toml), så login-cookien
 // ligger på samme domæne som appen, og der ikke er brug for CORS eller hemmeligheder i frontend.
-import * as demo from "./demo.js";
-
 export class ApiError extends Error {
   constructor(status, data) { super(data?.error || `Fejl ${status}`); this.status = status; this.data = data; }
 }
@@ -11,8 +9,11 @@ export class NetworkError extends Error {
 }
 
 let demoMode = false;
+let demoApi = null;
 export const isDemo = () => demoMode;
-export function setDemo(on) { demoMode = !!on; }
+// Demo-modulet (opdigtede data) hentes først, når demo vælges - det skal ikke forsinke den rigtige app.
+export async function enableDemo() { demoApi = (await import("./demo.js")).api; demoMode = true; }
+export function disableDemo() { demoMode = false; }
 
 async function http(method, path, body) {
   let res;
@@ -54,5 +55,5 @@ const real = {
 
 // Samme metodenavne; peger på demo-lageret (kun i hukommelsen) eller det rigtige system.
 export const api = new Proxy({}, {
-  get: (_t, name) => (...args) => (demoMode ? demo.api : real)[name](...args),
+  get: (_t, name) => (...args) => (demoMode && demoApi ? demoApi : real)[name](...args),
 });

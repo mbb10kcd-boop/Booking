@@ -1,5 +1,5 @@
 // Pedel-app: router, login, "I dag", "Bookinger" og detaljevisning.
-import { api, ApiError, NetworkError, setDemo, isDemo } from "./api.js";
+import { api, ApiError, NetworkError, enableDemo, disableDemo, isDemo } from "./api.js";
 import {
   esc, todayStr, nowLocal, addDaysStr, mondayOf, monthStart, addMonthsStr, daysInMonth, dow, isoWeek, MONTHS, DAYS_SHORT,
   fmtDateLongCap, fmtDateShort, relativeDayLabel, hhmm, onDay, isCancelled, isNow, isOver, dayTimeLabel, lastDay, isMultiDay,
@@ -16,6 +16,10 @@ let renderToken = 0;
 let refreshTimer = null;
 
 const bust = () => ++renderToken;
+
+// Brugerens navn gemmes lokalt, så forsiden ikke skal vente på et ekstra opslag. Ugyldigt login opdages af de almindelige datakald.
+function readUser() { try { return JSON.parse(localStorage.getItem("pedel-user") || "null"); } catch { return null; } }
+function saveUser(u) { try { if (u) localStorage.setItem("pedel-user", JSON.stringify(u)); else localStorage.removeItem("pedel-user"); } catch { /* ignorer */ } }
 const $ = (sel, root = document) => root.querySelector(sel);
 
 // Demo-banneret er sticky; topbaren skal ligge lige under det, uanset om teksten fylder 1 eller 2 linjer.
@@ -66,7 +70,7 @@ function renderLogin() {
   bust();
   const msg = sessionStorage.getItem("pedel-login-msg");
   sessionStorage.removeItem("pedel-login-msg");
-  setDemo(false);
+  disableDemo();
   document.getElementById("demo-banner").hidden = true;
   document.body.classList.remove("is-demo");
   $app.innerHTML = `<main class="login">
@@ -94,6 +98,7 @@ function renderLogin() {
     btn.disabled = true; btn.classList.add("busy");
     try {
       user = await api.login(email, password);
+      saveUser(user);
       resetRef();
       location.hash = "#/";
       route();
@@ -103,7 +108,7 @@ function renderLogin() {
     } finally { btn.disabled = false; btn.classList.remove("busy"); }
   });
   $("#demo-btn").addEventListener("click", async () => {
-    setDemo(true); resetRef();
+    await enableDemo(); resetRef();
     user = await api.me();
     document.getElementById("demo-banner").hidden = false;
     document.body.classList.add("is-demo");
@@ -119,8 +124,8 @@ async function renderToday() {
   setView(shell("today", `<div class="page"><div class="skel-head"></div>${skeleton(3)}</div>`));
   try {
     const today = todayStr();
-    const from = `${addDaysStr(today, -3)}T00:00:00`, to = `${addDaysStr(today, 60)}T23:59:59`;
-    const [, all, notes] = await Promise.all([loadRef(), api.bookings(from, to), api.dayNotes(today, addDaysStr(today, 3))]);
+    // Kun det nødvendige hentes først (i dag + 3 dage). De seneste ændringer hentes bagefter, så forsiden vises hurtigt.
+    const [, all, notes] = await Promise.all([loadRef(), api.bookings(`${today}T00:00:00`, `${addDaysStr(today, 3)}T23:59:59`), api.dayNotes(today, addDaysStr(today, 3))]);
     if (token !== renderToken) return;
     const dayB = all.filter((b) => onDay(b, today)).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
     const active = dayB.filter((b) => !isCancelled(b));
@@ -129,7 +134,6 @@ async function renderToday() {
     const nowList = active.filter((b) => isNow(b, now));
     const later = active.filter((b) => b.startsAt > now);
     const done = active.filter((b) => isOver(b, now));
-    const changes = recentChanges(all);
     const weekday = fmtDateLongCap(today);
     const todayNotes = notes.filter((n) => n.date === today);
 
@@ -159,7 +163,7 @@ async function renderToday() {
             ${section("Aflyst i dag", cancelled, "g-cancel")}
           </div>
           <aside class="col-side">
-            ${renderChanges(changes)}
+            <div id="changes-slot"><section class="panel"><h2>Seneste ændringer og aflysninger</h2><p class="muted">Henter …</p></section></div>
             ${tomorrowNotes.length ? `<section class="panel"><h2>Kommende dagsnoter</h2>${tomorrowNotes.map((n) => `<p class="note-line"><strong>${esc(fmtDateShort(n.date))}</strong> ${esc(n.text)}</p>`).join("")}</section>` : ""}
             ${renderUpcoming(all, today)}
           </aside>
@@ -167,9 +171,24 @@ async function renderToday() {
       </div>`;
     setView(shell("today", main));
     scheduleRefresh();
+    loadChanges(token, today);
   } catch (err) {
     if (token !== renderToken || handleAuth(err)) return;
     setView(shell("today", `<div class="page">${errorBox(userMessage(err))}</div>`));
+  }
+}
+
+async function loadChanges(token, today) {
+  try {
+    const wide = await api.bookings(`${addDaysStr(today, -3)}T00:00:00`, `${addDaysStr(today, 60)}T23:59:59`);
+    if (token !== renderToken) return;
+    const slot = document.getElementById("changes-slot");
+    if (slot) slot.innerHTML = renderChanges(recentChanges(wide));
+  } catch (err) {
+    if (token !== renderToken) return;
+    if (handleAuth(err)) return;
+    const slot = document.getElementById("changes-slot");
+    if (slot) slot.innerHTML = `<section class="panel"><h2>Seneste ændringer og aflysninger</h2><p class="muted">Kunne ikke hentes lige nu.</p></section>`;
   }
 }
 
@@ -491,8 +510,14 @@ async function route() {
   const r = currentRoute();
   if (r.name === "login") return renderLogin();
   if (!user) {
-    try { user = await api.me(); } catch { user = null; }
-    if (!user) { location.hash = "#/login"; return renderLogin(); }
+    const cached = isDemo() ? null : readUser();
+    if (cached) {
+      user = cached;
+      api.me().then((u) => { user = u; saveUser(u); }).catch((e) => { if (e instanceof ApiError && e.status === 401) { user = null; saveUser(null); } });
+    } else {
+      try { user = await api.me(); saveUser(user); } catch { user = null; }
+      if (!user) { location.hash = "#/login"; return renderLogin(); }
+    }
   }
   const deps = { shell, setView, userMessage, handleAuth, invalidateCache, getUser: () => user, bust, getToken: () => renderToken, $ };
   switch (r.name) {
@@ -511,7 +536,7 @@ document.addEventListener("click", async (e) => {
   const d = t.dataset;
   if ("logout" in d) {
     try { await api.logout(); } catch { /* ignorer – vi nulstiller alligevel lokalt */ }
-    user = null; resetRef(); invalidateCache(); setDemo(false);
+    user = null; resetRef(); invalidateCache(); disableDemo(); saveUser(null);
     document.getElementById("demo-banner").hidden = true; document.body.classList.remove("is-demo");
     location.hash = "#/login"; return renderLogin();
   }

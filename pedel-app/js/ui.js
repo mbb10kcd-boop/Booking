@@ -1,5 +1,5 @@
 // Fælles UI-dele: ikoner, bookingkort, toasts, dialoger og referencedata (faciliteter/foreninger).
-import { api } from "./api.js";
+import { api, isDemo } from "./api.js";
 import {
   esc, hhmm, dayTimeLabel, isCancelled, isNow, isOver, nowLocal, stampToLocalNaive, minutesBetween, isMultiDay,
 } from "./util.js";
@@ -34,15 +34,38 @@ export function icon(name, cls = "") {
 
 // ---- Referencedata ----
 export const ref = { fac: new Map(), orgs: new Map(), facList: [], orgList: [], loaded: false };
-export function resetRef() { ref.fac = new Map(); ref.orgs = new Map(); ref.facList = []; ref.orgList = []; ref.loaded = false; }
-export async function loadRef() {
-  if (ref.loaded) return ref;
-  const [facs, orgs] = await Promise.all([api.facilities(), api.organizations()]);
+const REF_KEY = "pedel-ref-v1";
+const REF_TTL_MS = 12 * 3600 * 1000;
+function applyRef(facs, orgs) {
   ref.facList = facs.filter((f) => !f.archived);
   ref.fac = new Map(facs.map((f) => [f.id, f]));
   ref.orgList = orgs.filter((o) => !o.archived);
   ref.orgs = new Map(orgs.map((o) => [o.id, o]));
   ref.loaded = true;
+}
+export function resetRef() {
+  ref.fac = new Map(); ref.orgs = new Map(); ref.facList = []; ref.orgList = []; ref.loaded = false;
+  try { localStorage.removeItem(REF_KEY); } catch { /* ignorer */ }
+}
+async function fetchRef() {
+  const [facs, orgs] = await Promise.all([api.facilities(), api.organizations()]);
+  applyRef(facs, orgs);
+  if (!isDemo()) { try { localStorage.setItem(REF_KEY, JSON.stringify({ at: Date.now(), facs, orgs })); } catch { /* ignorer */ } }
+}
+/** Faciliteter og foreninger ændrer sig sjældent: vises straks fra det gemte (op til 12 timer) og opdateres i baggrunden. */
+export async function loadRef() {
+  if (ref.loaded) return ref;
+  if (!isDemo()) {
+    try {
+      const c = JSON.parse(localStorage.getItem(REF_KEY) || "null");
+      if (c && Date.now() - c.at < REF_TTL_MS && Array.isArray(c.facs) && Array.isArray(c.orgs)) {
+        applyRef(c.facs, c.orgs);
+        fetchRef().catch(() => { /* beholder det gemte, hvis opdateringen fejler */ });
+        return ref;
+      }
+    } catch { /* ugyldigt cache - hent forfra */ }
+  }
+  await fetchRef();
   return ref;
 }
 export const facName = (id) => ref.fac.get(id)?.name ?? "Ukendt lokale";
