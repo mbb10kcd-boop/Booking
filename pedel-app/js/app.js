@@ -146,25 +146,23 @@ async function renderToday() {
           <div><p class="eyebrow">Uge ${isoWeek(today)}</p><h1>${esc(weekday)}</h1></div>
           <button class="icon-btn" data-reload="1" aria-label="Opdater">${icon("refresh")}</button>
         </div>
+        ${renderNotes(todayNotes, tomorrowNotes, [...nowList, ...later], today)}
         <div class="stats" role="list">
           <div class="stat" role="listitem"><strong>${active.length}</strong><span>bookinger i dag</span></div>
           <div class="stat s-now" role="listitem"><strong>${nowList.length}</strong><span>i gang nu</span></div>
           <div class="stat s-later" role="listitem"><strong>${later.length}</strong><span>kommer senere</span></div>
-          <div class="stat s-cancel" role="listitem"><strong>${cancelled.length}</strong><span>aflyst i dag</span></div>
         </div>
         <a class="btn primary big block" href="#/opret">${icon("plus")}Opret booking</a>
-        ${todayNotes.map((n) => `<div class="notice n-note">${icon("flag")}<div><strong>Dagsnote</strong><p>${esc(n.text)}</p></div></div>`).join("")}
         <div class="cols">
           <div class="col-main">
             ${active.length === 0 ? `<div class="empty">${icon("check")}<p><strong>Ingen bookinger i dag</strong></p><p>Der er ikke noget på programmet.</p></div>` : ""}
             ${section("I gang nu", nowList, "g-now")}
             ${section("Kommer senere i dag", later, "g-later")}
             ${section("Afsluttet", done, "g-done")}
-            ${section("Aflyst i dag", cancelled, "g-cancel")}
+            ${cancelled.length ? `<details class="group g-cancel fold"><summary>Aflyst i dag<span class="count">${cancelled.length}</span></summary><div class="cards">${cancelled.map((b) => card(b, today)).join("")}</div></details>` : ""}
           </div>
           <aside class="col-side">
-            <div id="changes-slot"><section class="panel"><h2>Seneste ændringer og aflysninger</h2><p class="muted">Henter …</p></section></div>
-            ${tomorrowNotes.length ? `<section class="panel"><h2>Kommende dagsnoter</h2>${tomorrowNotes.map((n) => `<p class="note-line"><strong>${esc(fmtDateShort(n.date))}</strong> ${esc(n.text)}</p>`).join("")}</section>` : ""}
+            <div id="changes-slot"><section class="panel"><h2>Seneste ændringer</h2><p class="muted">Henter …</p></section></div>
             ${renderUpcoming(all, today)}
           </aside>
         </div>
@@ -188,7 +186,7 @@ async function loadChanges(token, today) {
     if (token !== renderToken) return;
     if (handleAuth(err)) return;
     const slot = document.getElementById("changes-slot");
-    if (slot) slot.innerHTML = `<section class="panel"><h2>Seneste ændringer og aflysninger</h2><p class="muted">Kunne ikke hentes lige nu.</p></section>`;
+    if (slot) slot.innerHTML = `<section class="panel"><h2>Seneste ændringer</h2><p class="muted">Kunne ikke hentes lige nu.</p></section>`;
   }
 }
 
@@ -207,14 +205,27 @@ function recentChanges(all) {
       ev.push({ type: b.movedFromStartsAt ? "move" : "change", at: r.updated, b });
     }
   }
-  return ev.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
+  // Aflysninger fylder mindst: højst 2 med, resten er nye/ændrede/flyttede bookinger.
+  const sorted = ev.sort((a, b) => b.at.localeCompare(a.at));
+  let cancels = 0;
+  return sorted.filter((e) => e.type !== "cancel" || ++cancels <= 2).slice(0, 6);
 }
 function renderChanges(list) {
   const meta = { cancel: ["x", "Aflyst", "c-cancel"], new: ["plus", "Ny booking", "c-new"], change: ["edit", "Ændret", "c-change"], move: ["move", "Flyttet", "c-move"] };
-  return `<section class="panel"><h2>Seneste ændringer og aflysninger</h2>${list.length ? `<ul class="changes">${list.map((e) => {
+  return `<section class="panel"><h2>Seneste ændringer</h2>${list.length ? `<ul class="changes">${list.map((e) => {
     const [ic, label, cls] = meta[e.type];
     return `<li><a href="#/booking/${encodeURIComponent(e.b.id)}" class="chg ${cls}"><span class="chg-ic">${icon(ic)}</span><span class="chg-tx"><strong>${label}: ${esc(e.b.title)}</strong><small>${esc(fmtDateShort(e.b.startsAt.slice(0, 10)))} ${esc(hhmm(e.b.startsAt))} · ${esc(facName(e.b.facilityId))} · ${esc(timeAgo(e.at))}</small></span></a></li>`;
   }).join("")}</ul>` : `<p class="muted">Ingen ændringer de seneste 7 dage.</p>`}</section>`;
+}
+function renderNotes(todayNotes, laterNotes, active, today) {
+  const withNotes = active.filter((b) => b.notes && b.notes.trim());
+  if (!todayNotes.length && !laterNotes.length && !withNotes.length) return "";
+  const dayNote = (n, showDate) => `<li>${showDate ? `<strong class="nt-day">${esc(relativeDayLabel(n.date))}</strong>` : ""}<span>${esc(n.text)}</span></li>`;
+  const parts = [];
+  if (todayNotes.length) parts.push(`<section class="notes-card"><h2>${icon("flag")}Dagsnote${todayNotes.length > 1 ? "r" : ""} i dag</h2><ul>${todayNotes.map((n) => dayNote(n, false)).join("")}</ul></section>`);
+  if (withNotes.length) parts.push(`<section class="notes-card soft"><h2>${icon("note")}Noter til dagens bookinger</h2><ul>${withNotes.map((b) => `<li><a href="#/booking/${encodeURIComponent(b.id)}"><strong class="nt-day">${esc(dayTimeLabel(b, today).split("–")[0])} ${esc(b.title)}</strong><span>${esc(b.notes)}</span></a></li>`).join("")}</ul></section>`);
+  if (laterNotes.length) parts.push(`<section class="notes-card soft"><h2>${icon("flag")}Kommende dagsnoter</h2><ul>${laterNotes.map((n) => dayNote(n, true)).join("")}</ul></section>`);
+  return `<div class="notes-stack">${parts.join("")}</div>`;
 }
 function renderUpcoming(all, today) {
   const days = [];
@@ -233,6 +244,7 @@ function scheduleRefresh() {
 // ---------- Bookinger (oversigt, søgning, filtre) ----------
 const listState = { view: "dag", date: null, q: "", fac: "", status: "aktive", showCount: 60 };
 const cache = { key: "", at: 0, rows: [] };
+let listNotes = [];
 
 async function fetchRange(from, to) {
   const key = `${isDemo()}|${from}|${to}`;
@@ -331,8 +343,12 @@ async function updateList() {
   }
   res.innerHTML = skeleton(3);
   try {
-    const rows = await fetchRange(`${from}T00:00:00`, `${to}T23:59:59`);
+    const [rows, notes] = await Promise.all([
+      fetchRange(`${from}T00:00:00`, `${to}T23:59:59`),
+      !search && st.view !== "maaned" ? api.dayNotes(from, to).catch(() => []) : Promise.resolve([]),
+    ]);
     if (token !== renderToken) return;
+    listNotes = notes;
     renderResults(rows, from, to, search);
   } catch (err) {
     if (token !== renderToken || handleAuth(err)) return;
@@ -369,6 +385,7 @@ function renderResults(rows, from, to, search) {
     const a = slice(act), c = slice(can);
     if (shown >= st.showCount && !a.length && !c.length) break;
     html += `<section class="day ${d === todayStr() ? "is-today" : ""}"><h2 class="day-h"><span>${esc(relativeDayLabel(d))}</span>${st.view === "dag" && !search ? "" : `<small>${esc(fmtDateShort(d))}</small>`}<span class="count">${act.length}</span></h2>
+      ${listNotes.filter((n) => n.date === d).map((n) => `<div class="day-note">${icon("flag")}<div><strong>Dagsnote</strong> ${esc(n.text)}</div></div>`).join("")}
       ${items.length === 0 ? `<p class="muted pad">Ingen bookinger</p>` : ""}
       <div class="cards">${a.map((b) => card(b, d)).join("")}</div>
       ${c.length ? `<div class="cancel-sep">${icon("x")}Aflyst</div><div class="cards">${c.map((b) => card(b, d)).join("")}</div>` : ""}</section>`;

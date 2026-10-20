@@ -64,7 +64,7 @@ body.is-demo .topbar { top: var(--banner-h, 33px); }
 .eyebrow { color: var(--muted); font-size: .85rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .icon-btn { display: inline-grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; cursor: pointer; color: var(--ink); }
 .icon-btn .ic { width: 1.3rem; height: 1.3rem; }
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; margin-bottom: 1rem; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin-bottom: 1rem; }
 .stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: .6rem .5rem; text-align: center; }
 .stat strong { display: block; font-size: 1.6rem; line-height: 1.1; }
 .stat span { font-size: .72rem; color: var(--muted); display: block; line-height: 1.2; }
@@ -87,7 +87,7 @@ body.is-demo .topbar { top: var(--banner-h, 33px); }
 .bk-title { font-weight: 700; font-size: 1.05rem; overflow-wrap: anywhere; }
 .bk-meta { display: flex; flex-wrap: wrap; gap: .1rem .9rem; color: var(--muted); font-size: .9rem; margin-top: .15rem; }
 .bk-meta span { display: inline-flex; align-items: center; gap: .3rem; }
-.bk-note { margin-top: .35rem; font-size: .88rem; color: #3b4a52; background: #f2f4f4; border-radius: 8px; padding: .3rem .5rem; display: flex; gap: .4rem; overflow-wrap: anywhere; }
+.bk-note { margin-top: .35rem; font-size: .92rem; color: #5e4300; background: #fff3d6; border: 1px solid #f2d58a; font-weight: 600; border-radius: 8px; padding: .3rem .5rem; display: flex; gap: .4rem; overflow-wrap: anywhere; }
 .bk-badges { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .4rem; }
 .bk-badges:empty { display: none; }
 .bk-go { color: #9aa7ae; align-self: center; }
@@ -257,3 +257,23 @@ code { background: #eef2f3; padding: .1rem .5rem; border-radius: 6px; font-size:
 @media (max-width: 380px) { .bk { grid-template-columns: 62px 1fr auto; } .stat strong { font-size: 1.35rem; } }
 @media (prefers-reduced-motion: no-preference) { .btn, .chip, .tab { transition: background .12s, border-color .12s; } }
 @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; } }
+
+/* Noter (dagsnoter + bookingnoter) - skal ses med det samme */
+.notes-stack { display: grid; gap: .6rem; margin: 0 0 1rem; }
+.notes-card { background: #fff3d6; border: 1.5px solid #e8b94a; border-left: 7px solid #e0a020; color: #4d3600; border-radius: var(--radius); padding: .8rem 1rem; }
+.notes-card.soft { background: #fffaf0; border-color: #f2d58a; border-left-color: #e8b94a; }
+.notes-card h2 { font-size: .9rem; text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: center; gap: .4rem; margin-bottom: .4rem; color: #7a5200; }
+.notes-card ul { list-style: none; margin: 0; padding: 0; display: grid; gap: .45rem; }
+.notes-card li, .notes-card li a { font-size: 1.05rem; line-height: 1.35; overflow-wrap: anywhere; color: inherit; text-decoration: none; }
+.notes-card li a { display: grid; gap: .1rem; }
+.notes-card:not(.soft) li { font-size: 1.15rem; font-weight: 700; }
+.nt-day { display: block; font-size: .85rem; color: #7a5200; font-weight: 700; }
+/* Aflyste bookinger: tonet ned og foldet sammen */
+details.fold > summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: .5rem; font-size: .95rem; font-weight: 600; color: var(--muted); padding: .5rem .15rem; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary::before { content: "▸"; }
+details.fold[open] > summary::before { content: "▾"; }
+details.fold .cards { margin-top: .4rem; }
+.chg.c-cancel { opacity: .75; }
+.day-note { display: flex; gap: .55rem; align-items: flex-start; background: #fff3d6; border: 1.5px solid #e8b94a; border-left: 7px solid #e0a020; color: #4d3600; border-radius: 12px; padding: .6rem .8rem; margin: 0 0 .6rem; font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
+.day-note strong { color: #7a5200; text-transform: uppercase; font-size: .78rem; letter-spacing: .04em; display: block; }
