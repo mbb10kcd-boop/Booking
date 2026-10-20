@@ -14,10 +14,8 @@ import type { BookingDTO, DayNoteDTO, FacilityDTO, OrganizationDTO } from "@/lib
 import {
   BOOKING_STATUS_CLASSES,
   BOOKING_STATUS_LABELS,
-  SEASON_ACCENT_CLASS,
   SEASON_BADGE_CLASSES,
   SEASON_BADGE_LABEL,
-  IMPORTANT_ACCENT_CLASS,
   IMPORTANT_BADGE_CLASSES,
   IMPORTANT_BADGE_LABEL,
   weekdayName,
@@ -27,7 +25,7 @@ import { isoWeekNumber, localISODate, nowLocalDateTimeString, roundDateTimeLocal
 import { BookingFormModal } from "./BookingFormModal";
 import { DayNoteModal } from "./DayNoteModal";
 
-type ViewMode = "liste" | "uge" | "ugeplan" | "facilitet" | "maaned" | "dag";
+type ViewMode = "ugeplan" | "dag";
 
 function startOfWeek(d: Date): Date {
   const date = new Date(d);
@@ -35,10 +33,6 @@ function startOfWeek(d: Date): Date {
   date.setDate(date.getDate() - day);
   date.setHours(0, 0, 0, 0);
   return date;
-}
-
-function startOfMonth(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), 1);
 }
 
 function addDays(d: Date, n: number): Date {
@@ -101,8 +95,6 @@ function clampMinutes(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-const WEEKDAY_SHORT = ["Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn"];
-
 /**
  * Konverterer en facilitets hex-farve (fx "#2563eb") til en rgba()-streng med
  * den ønskede transparens. Bruges af `facilityCardStyle` til at give hver
@@ -138,6 +130,167 @@ function facilityCardStyle(color: string | null | undefined, status: string): CS
     style.backgroundColor = hexToRgba(color, 0.16);
   }
   return style;
+}
+
+/** Mørkner (factor < 1) en hex-farve - bruges til fyldte enkeltbooking-kort, så hvid tekst altid kan læses. */
+function shadeHex(hex: string, factor: number): string {
+  const clean = hex.replace("#", "");
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
+  const int = parseInt(full, 16) || 0;
+  const ch = (v: number) => Math.max(0, Math.min(255, Math.round(v * factor)));
+  const r = ch((int >> 16) & 255);
+  const g = ch((int >> 8) & 255);
+  const b = ch(int & 255);
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** Statusser hvor bookingen endnu ikke er endeligt på plads - vises med stiplet kant og "Afventer"-mærke. */
+const WAITING_STATUSES = new Set(["forespoergsel", "afventer_godkendelse", "midlertidig", "reserveret"]);
+
+/**
+ * Fælles udseende for bookinger i Dagsplan og Ugeplan, så forskellen på
+ * booking-typerne er tydelig på afstand:
+ * - ENKELTBOOKING: fyldt, mættet facilitetsfarve med hvid tekst.
+ * - SÆSONBOOKING (gentages ugentligt): lys farvetone, tyk farvet kant og farvet
+ *   tekst - tydeligt "lettere" end en enkeltbooking, plus et ↻-mærke.
+ * - VIGTIG/KAMP: kraftig rød ring + flag.
+ * - AFVENTER: stiplet kant.
+ * Aflyste/afviste bookinger beholder de røde statusfarver.
+ */
+function bookingVisual(color: string, b: BookingDTO): { style: CSSProperties; className: string } {
+  if (b.status === "aflyst" || b.status === "afvist") {
+    return { style: facilityCardStyle(color, b.status), className: `border ${BOOKING_STATUS_CLASSES[b.status] ?? ""}` };
+  }
+  const isSeason = !!b.seasonGroupId;
+  const style: CSSProperties = isSeason
+    ? {
+        backgroundColor: hexToRgba(color, 0.13),
+        borderColor: hexToRgba(color, 0.45),
+        borderLeftColor: color,
+        borderLeftWidth: 6,
+        color: shadeHex(color, 0.55),
+      }
+    : {
+        backgroundColor: shadeHex(color, 0.72),
+        borderColor: shadeHex(color, 0.6),
+        borderLeftColor: color,
+        borderLeftWidth: 6,
+        color: "#ffffff",
+      };
+  if (WAITING_STATUSES.has(b.status)) style.borderStyle = "dashed";
+  return { style, className: `border ${b.important ? "ring-2 ring-inset ring-red-600" : ""}` };
+}
+
+/** Faneblade (HALLER, MØDELOKALER, ...) - hvert fanebladet samler de faciliteter, der hører sammen. */
+interface FacilityTabDef {
+  key: string;
+  label: string;
+  color: string;
+  /** Matcher på facilitetens navn (med små bogstaver). */
+  match: (name: string) => boolean;
+  /** Rækkefølge af faciliteterne i fanebladet (navnepræfikser med små bogstaver). */
+  order: string[];
+}
+
+const FACILITY_TAB_DEFS: FacilityTabDef[] = [
+  {
+    key: "haller",
+    label: "Haller",
+    color: "#2563eb",
+    match: (n) => n === "opvisningshallen" || n === "træningshallen" || n === "multisalen",
+    order: ["opvisningshallen", "træningshallen", "multisalen"],
+  },
+  {
+    key: "moedelokaler",
+    label: "Mødelokaler",
+    color: "#0d9488",
+    match: (n) => n.startsWith("mødelokale") || n === "klubsekretariatet",
+    order: ["mødelokale 1", "mødelokale 2", "mødelokale 3", "mødelokale 4", "klubsekretariatet"],
+  },
+  {
+    key: "klatrevaeg",
+    label: "Klatrevæg",
+    color: "#9333ea",
+    match: (n) => n.startsWith("klatrevæg") || n === "opvisningshallen",
+    order: ["klatrevæg", "opvisningshallen"],
+  },
+  {
+    key: "pickleball",
+    label: "Pickleball",
+    color: "#ea580c",
+    match: (n) => n.includes("pickleball"),
+    order: [],
+  },
+];
+
+interface FacilityTab {
+  key: string;
+  label: string;
+  color: string;
+  facilities: FacilityDTO[];
+}
+
+function buildFacilityTabs(allFacilities: FacilityDTO[]): FacilityTab[] {
+  const active = allFacilities.filter((f) => !f.archived);
+  const used = new Set<string>();
+  const tabs: FacilityTab[] = [];
+  for (const def of FACILITY_TAB_DEFS) {
+    const list = active.filter((f) => def.match(f.name.toLowerCase()));
+    if (list.length === 0) continue;
+    list.forEach((f) => used.add(f.id));
+    const rank = (f: FacilityDTO) => {
+      const idx = def.order.findIndex((o) => f.name.toLowerCase().startsWith(o));
+      return idx === -1 ? 99 : idx;
+    };
+    list.sort(
+      (a, b) =>
+        rank(a) - rank(b) ||
+        (a.sortOrder ?? 0) - (b.sortOrder ?? 0) ||
+        a.name.localeCompare(b.name, "da", { numeric: true })
+    );
+    tabs.push({ key: def.key, label: def.label, color: def.color, facilities: list });
+  }
+  // Faciliteter der ikke passer i et fanebladet (fx nyoprettede) samles i "Andet", så intet forsvinder fra kalenderen.
+  const rest = active.filter((f) => !used.has(f.id));
+  if (rest.length > 0) tabs.push({ key: "andet", label: "Andet", color: "#475569", facilities: rest });
+  return tabs;
+}
+
+/** Farver til at skelne faciliteter, der i databasen har samme farve (fx alle pickleballbanerne eller mødelokalerne). */
+const DISTINCT_COLORS = ["#2563eb", "#16a34a", "#d97706", "#db2777", "#7c3aed", "#0891b2", "#dc2626", "#65a30d"];
+
+function buildColorMap(tabs: FacilityTab[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const tab of tabs) {
+    const counts = new Map<string, number>();
+    for (const f of tab.facilities) {
+      const c = (f.color ?? "#64748b").toLowerCase();
+      counts.set(c, (counts.get(c) ?? 0) + 1);
+    }
+    const taken = new Set(Array.from(counts.entries()).filter(([, n]) => n === 1).map(([c]) => c));
+    let next = 0;
+    for (const f of tab.facilities) {
+      if (map.has(f.id)) continue;
+      const c = (f.color ?? "#64748b").toLowerCase();
+      if ((counts.get(c) ?? 0) === 1) {
+        map.set(f.id, f.color ?? "#64748b");
+      } else {
+        while (next < DISTINCT_COLORS.length && taken.has(DISTINCT_COLORS[next])) next++;
+        const pick = DISTINCT_COLORS[next % DISTINCT_COLORS.length];
+        next++;
+        taken.add(pick);
+        map.set(f.id, pick);
+      }
+    }
+  }
+  return map;
+}
+
+/** Kort visningsnavn til en facilitet i rækkeoverskrifter (fx "Pickleballbane/Badmintonbane 3" -> "Bane 3"). */
+function shortFacilityName(name: string): { main: string; sub?: string } {
+  const m = name.match(/^Pickleballbane\/Badmintonbane (\d+)$/i);
+  if (m) return { main: `Bane ${m[1]}`, sub: "Pickleball / badminton" };
+  return { main: name };
 }
 
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
@@ -189,16 +342,34 @@ export function CalendarClient({
   const [dayNotes, setDayNotes] = useState<DayNoteDTO[]>([]);
   const [view, setView] = useState<ViewMode>("ugeplan");
   const [anchor, setAnchor] = useState(new Date());
-  // Standardvalgte faciliteter: Martin har oplyst at Opvisningshallen,
-  // Træningshallen og Multisalen stort set altid er dem der bruges, så de er
-  // markeret som standard i stedet for samtlige faciliteter. Falder tilbage
-  // til alle faciliteter, hvis ingen af de tre findes (fx i et testmiljø med
-  // andre navne), så filteret aldrig utilsigtet viser en tom kalender.
-  const DEFAULT_FACILITY_NAMES = ["Opvisningshallen", "Træningshallen", "Multisalen"];
-  const [selectedFacilityIds, setSelectedFacilityIds] = useState<Set<string>>(() => {
-    const defaults = initialFacilities.filter((f) => DEFAULT_FACILITY_NAMES.includes(f.name));
-    return new Set((defaults.length > 0 ? defaults : initialFacilities).map((f) => f.id));
-  });
+  // Faneblade (HALLER, MØDELOKALER, KLATREVÆG, PICKLEBALL) erstatter det tidligere "Vis faciliteter"-filter.
+  const tabs = useMemo(() => buildFacilityTabs(initialFacilities), [initialFacilities]);
+  const colorMap = useMemo(() => buildColorMap(tabs), [tabs]);
+  const [tabKey, setTabKey] = useState<string>("haller");
+  useEffect(() => {
+    // Husk sidst valgte faneblad (læses først efter første render, så server- og klient-HTML er ens).
+    try {
+      const saved = window.localStorage.getItem("kalender-tab");
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (saved && tabs.some((t) => t.key === saved)) setTabKey(saved);
+    } catch {
+      // localStorage kan være utilgængelig - så starter vi bare på standardfanebladet.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const activeTab = tabs.find((t) => t.key === tabKey) ?? tabs[0];
+  const tabFacilities = useMemo(
+    () => (activeTab?.facilities ?? []).map((f) => ({ ...f, color: colorMap.get(f.id) ?? f.color })),
+    [activeTab, colorMap]
+  );
+  function chooseTab(key: string) {
+    setTabKey(key);
+    try {
+      window.localStorage.setItem("kalender-tab", key);
+    } catch {
+      // ignoreres
+    }
+  }
   const [showModal, setShowModal] = useState(false);
   // Forudfyldes når man dobbeltklikker en dag i kalenderen (og ev. en
   // facilitet, i facilitetsvisningen) - se `openNewBookingFor` herunder.
@@ -243,30 +414,21 @@ export function CalendarClient({
   const [seasonMoveBusy, setSeasonMoveBusy] = useState(false);
 
   const rangeStart = useMemo(() => {
-    // "facilitet"-visningen (flere faciliteter side om side for ugen, jf.
-    // GIBBS' ressourcekalender) bruger samme uge-interval som "uge".
-    if (view === "uge" || view === "ugeplan" || view === "facilitet") return startOfWeek(anchor);
-    if (view === "maaned") return startOfMonth(anchor);
     if (view === "dag") {
       const d = new Date(anchor);
       d.setHours(0, 0, 0, 0);
       return d;
     }
-    return addDays(new Date(), -1);
+    return startOfWeek(anchor);
   }, [view, anchor]);
 
   const rangeEnd = useMemo(() => {
-    if (view === "uge" || view === "ugeplan" || view === "facilitet") return addDays(startOfWeek(anchor), 7);
-    if (view === "maaned") {
-      const start = startOfMonth(anchor);
-      return new Date(start.getFullYear(), start.getMonth() + 1, 1);
-    }
     if (view === "dag") {
       const d = new Date(anchor);
       d.setHours(0, 0, 0, 0);
       return addDays(d, 1);
     }
-    return addDays(new Date(), 30);
+    return addDays(startOfWeek(anchor), 7);
   }, [view, anchor]);
 
   // Samlet dato/uge-label til den fastfrosne værktøjslinje foroven - så man
@@ -279,7 +441,7 @@ export function CalendarClient({
     if (view === "dag") {
       return `${capitalizeDaDate(formatDaDate(rangeStart.toISOString()))} \u00b7 Uge ${isoWeekNumber(rangeStart)}`;
     }
-    if (view === "uge" || view === "ugeplan" || view === "facilitet") {
+    {
       const weekEnd = addDays(rangeStart, 6);
       const range =
         rangeStart.getMonth() === weekEnd.getMonth()
@@ -287,10 +449,6 @@ export function CalendarClient({
           : `${rangeStart.getDate()}. ${monthNameDa(rangeStart)} \u2013 ${weekEnd.getDate()}. ${monthNameDa(weekEnd)} ${weekEnd.getFullYear()}`;
       return `Uge ${isoWeekNumber(rangeStart)} \u00b7 ${range}`;
     }
-    if (view === "maaned") {
-      return capitalizeDaDate(rangeStart.toLocaleDateString("da-DK", { month: "long", year: "numeric" }));
-    }
-    return "";
   }, [view, rangeStart]);
 
   async function loadBookings() {
@@ -320,8 +478,9 @@ export function CalendarClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, anchor]);
 
+  const tabFacilityIds = useMemo(() => new Set(tabFacilities.map((f) => f.id)), [tabFacilities]);
   const visibleBookings = bookings
-    .filter((b) => selectedFacilityIds.has(b.facilityId))
+    .filter((b) => tabFacilityIds.has(b.facilityId))
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 
   function notesForDay(dateStr: string): DayNoteDTO[] {
@@ -359,22 +518,9 @@ export function CalendarClient({
     return facilities.find((f) => f.id === id)?.name ?? "Ukendt";
   }
 
-  function facilityColor(id: string) {
-    return facilities.find((f) => f.id === id)?.color ?? "#64748b";
-  }
-
   function organizationName(id: string | null) {
     if (!id) return undefined;
     return organizations.find((o) => o.id === id)?.name;
-  }
-
-  function toggleFacility(id: string) {
-    setSelectedFacilityIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   }
 
   /** Åbner højreklik-hurtigmenuen for en booking på musens position. */
@@ -596,111 +742,128 @@ export function CalendarClient({
     );
   }
 
+  /** Slip af en booking (trukket i Ugeplan) på ←/→-knapperne: flytter den en uge tilbage/frem. */
+  function dropOnWeekShift(e: React.DragEvent, deltaDays: number) {
+    e.preventDefault();
+    const id = e.dataTransfer.getData("text/plain");
+    const booking = bookings.find((b) => b.id === id);
+    if (!booking || isMultiDay(booking)) return;
+    quickShiftDay(booking, deltaDays);
+  }
+
+  const weekCounts = (t: FacilityTab) => {
+    const ids = new Set(t.facilities.map((f) => f.id));
+    return bookings.filter((b) => ids.has(b.facilityId) && b.status !== "aflyst" && b.status !== "afvist").length;
+  };
+
   return (
-    <div className="flex flex-col md:flex-row gap-0 md:gap-6 p-4 md:p-8">
-      {/* Filter sidebar */}
-      <div className="md:w-56 shrink-0 mb-4 md:mb-0">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="text-xs font-semibold uppercase text-slate-400 mb-2">Vis faciliteter</div>
-          <div className="space-y-1.5 max-h-72 overflow-y-auto">
-            {facilities
-              .filter((f) => !f.archived)
-              .map((f) => (
-                <label key={f.id} className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedFacilityIds.has(f.id)}
-                    onChange={() => toggleFacility(f.id)}
-                    className="rounded border-slate-300"
-                  />
+    <div className="p-4 md:p-8">
+      {/* Faneblade: hver fane samler de faciliteter, der hører sammen. */}
+      <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Facilitetsgrupper">
+        {tabs.map((t) => {
+          const active = t.key === activeTab?.key;
+          const count = weekCounts(t);
+          return (
+            <button
+              key={t.key}
+              role="tab"
+              aria-selected={active}
+              onClick={() => chooseTab(t.key)}
+              className={`group flex items-center gap-2.5 rounded-xl border-2 px-5 py-2.5 text-sm font-bold uppercase tracking-wide transition-all ${
+                active ? "text-white shadow-md" : "bg-white text-slate-700 hover:shadow-sm"
+              }`}
+              style={
+                active
+                  ? { backgroundColor: t.color, borderColor: t.color }
+                  : { borderColor: hexToRgba(t.color, 0.45) }
+              }
+            >
+              <span className="flex -space-x-1">
+                {t.facilities.slice(0, 6).map((f) => (
                   <span
-                    className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: f.color ?? "#64748b" }}
+                    key={f.id}
+                    className="inline-block h-3 w-3 rounded-full border border-white"
+                    style={{ backgroundColor: colorMap.get(f.id) ?? f.color ?? "#64748b" }}
                   />
-                  <span className={f.parentId ? "pl-2" : ""}>{f.name}</span>
-                </label>
-              ))}
-          </div>
-        </div>
+                ))}
+              </span>
+              {t.label}
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold normal-case tracking-normal ${
+                  active ? "bg-white/25 text-white" : "bg-slate-100 text-slate-600"
+                }`}
+                title={view === "dag" ? "Bookinger denne dag" : "Bookinger i den viste uge"}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* Main calendar area */}
-      <div className="flex-1 min-w-0">
+      <div className="min-w-0">
         {/* Fastfrosset (sticky) værktøjslinje: visningsvalg, dato-navigation og
             det aktuelle datointerval skal altid være synlige, også når man
-            scroller langt ned i en høj visning som Dagsplan/Ugeplan. */}
-        <div className="sticky top-0 z-20 -mx-1 bg-slate-50 px-1 py-2 flex flex-wrap items-center justify-between gap-3 mb-4">
+            scroller langt ned. */}
+        <div className="sticky top-0 z-20 -mx-1 bg-slate-50 px-1 py-2 flex flex-wrap items-center justify-between gap-3 mb-3">
           <div className="flex items-center gap-2">
             <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1">
-              {(["liste", "uge", "ugeplan", "facilitet", "dag", "maaned"] as ViewMode[]).map((v) => (
+              {(["ugeplan", "dag"] as ViewMode[]).map((v) => (
                 <button
                   key={v}
                   onClick={() => setView(v)}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md capitalize ${
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md ${
                     view === v ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
-                  {v === "maaned"
-                    ? "Måned"
-                    : v === "facilitet"
-                      ? "Faciliteter"
-                      : v === "dag"
-                        ? "Dagsplan"
-                        : v === "ugeplan"
-                          ? "Ugeplan"
-                          : v}
+                  {v === "dag" ? "Dagsplan" : "Ugeplan"}
                 </button>
               ))}
             </div>
-            {view !== "liste" && (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setAnchor((a) => addDays(a, view === "maaned" ? -30 : view === "dag" ? -1 : -7))}
-                  data-day-shift={view === "dag" ? "-1" : view === "ugeplan" ? "-7" : undefined}
-                  title={
-                    view === "dag"
-                      ? "Forrige dag - træk en booking herhen for at flytte den en dag tilbage"
-                      : view === "ugeplan"
-                        ? "Forrige uge - træk en booking herhen for at flytte den en uge tilbage"
-                        : undefined
-                  }
-                  className={`w-8 h-8 rounded-lg border text-slate-600 hover:bg-slate-50 transition-colors ${
-                    (view === "dag" || view === "ugeplan") && dayDragActive
-                      ? "border-blue-400 bg-blue-50 ring-2 ring-blue-300"
-                      : "border-slate-200 bg-white"
-                  }`}
-                >
-                  &larr;
-                </button>
-                <button
-                  onClick={() => setAnchor(new Date())}
-                  className="px-3 h-8 rounded-lg border border-slate-200 bg-white text-sm text-slate-600 hover:bg-slate-50"
-                >
-                  I dag
-                </button>
-                <button
-                  onClick={() => setAnchor((a) => addDays(a, view === "maaned" ? 30 : view === "dag" ? 1 : 7))}
-                  data-day-shift={view === "dag" ? "1" : view === "ugeplan" ? "7" : undefined}
-                  title={
-                    view === "dag"
-                      ? "Næste dag - træk en booking herhen for at flytte den en dag frem"
-                      : view === "ugeplan"
-                        ? "Næste uge - træk en booking herhen for at flytte den en uge frem"
-                        : undefined
-                  }
-                  className={`w-8 h-8 rounded-lg border text-slate-600 hover:bg-slate-50 transition-colors ${
-                    (view === "dag" || view === "ugeplan") && dayDragActive
-                      ? "border-blue-400 bg-blue-50 ring-2 ring-blue-300"
-                      : "border-slate-200 bg-white"
-                  }`}
-                >
-                  &rarr;
-                </button>
-              </div>
-            )}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setAnchor((a) => addDays(a, view === "dag" ? -1 : -7))}
+                data-day-shift={view === "dag" ? "-1" : undefined}
+                onDragOver={view === "ugeplan" ? (e) => e.preventDefault() : undefined}
+                onDrop={view === "ugeplan" ? (e) => dropOnWeekShift(e, -7) : undefined}
+                title={
+                  view === "dag"
+                    ? "Forrige dag - træk en booking herhen for at flytte den en dag tilbage"
+                    : "Forrige uge - træk en booking herhen for at flytte den en uge tilbage"
+                }
+                className={`w-8 h-8 rounded-lg border text-slate-600 hover:bg-slate-50 transition-colors ${
+                  dayDragActive ? "border-blue-400 bg-blue-50 ring-2 ring-blue-300" : "border-slate-200 bg-white"
+                }`}
+              >
+                &larr;
+              </button>
+              <button
+                onClick={() => setAnchor(new Date())}
+                className="px-3 h-8 rounded-lg border border-slate-200 bg-white text-sm text-slate-600 hover:bg-slate-50"
+              >
+                I dag
+              </button>
+              <button
+                onClick={() => setAnchor((a) => addDays(a, view === "dag" ? 1 : 7))}
+                data-day-shift={view === "dag" ? "1" : undefined}
+                onDragOver={view === "ugeplan" ? (e) => e.preventDefault() : undefined}
+                onDrop={view === "ugeplan" ? (e) => dropOnWeekShift(e, 7) : undefined}
+                title={
+                  view === "dag"
+                    ? "Næste dag - træk en booking herhen for at flytte den en dag frem"
+                    : "Næste uge - træk en booking herhen for at flytte den en uge frem"
+                }
+                className={`w-8 h-8 rounded-lg border text-slate-600 hover:bg-slate-50 transition-colors ${
+                  dayDragActive ? "border-blue-400 bg-blue-50 ring-2 ring-blue-300" : "border-slate-200 bg-white"
+                }`}
+              >
+                &rarr;
+              </button>
+            </div>
             {headerDateLabel && (
-              <div className="text-sm font-semibold text-slate-700 whitespace-nowrap">{headerDateLabel}</div>
+              <div className="text-base font-bold text-slate-800 whitespace-nowrap">{headerDateLabel}</div>
             )}
+            {loading && <span className="text-xs text-slate-400">Indlæser...</span>}
           </div>
           <button
             onClick={() => {
@@ -715,49 +878,13 @@ export function CalendarClient({
           </button>
         </div>
 
-        {loading && <div className="text-sm text-slate-400 mb-2">Indlæser...</div>}
+        <CalendarLegend />
 
-        <div className="text-xs text-slate-400 mb-3">
-          {SEASON_BADGE_LABEL} markerer sæsonbookinger (gentages ugentligt) - så en booking, der afviger fra den
-          faste sæson, er nem at få øje på. {IMPORTANT_BADGE_LABEL} markerer en enkelt forekomst, der er blevet til
-          en kampdag (fx en sæsontræning, der denne uge bruges til en kamp) - en aflysning her kan udløse en bøde
-          til klubben. Dobbeltklik en dag for at oprette en booking den dag. Hold musen over en booking for flere
-          oplysninger, eller højreklik for hurtige handlinger.
-        </div>
-
-        {view === "liste" && (
-          <ListView
-            bookings={visibleBookings}
-            facilityName={facilityName}
-            facilityColor={facilityColor}
-            organizationName={organizationName}
-            onSelect={setSelectedBooking}
-            onContextMenu={openContextMenu}
-          />
-        )}
-        {view === "uge" && (
-          <WeekView
-            weekStart={rangeStart}
-            bookings={visibleBookings}
-            facilityName={facilityName}
-            facilityColor={facilityColor}
-            organizationName={organizationName}
-            onSelect={setSelectedBooking}
-            onContextMenu={openContextMenu}
-            notesForDay={notesForDay}
-            onAddNote={(dateStr) => setNoteModal({ date: dateStr })}
-            onEditNote={(note) => setNoteModal({ date: note.date, note })}
-            onDayDoubleClick={openNewBookingFor}
-          />
-        )}
         {view === "ugeplan" && (
-          <WeekGridView
+          <WeekMatrixView
             weekStart={rangeStart}
-            facilities={facilities.filter((f) => !f.archived && selectedFacilityIds.has(f.id))}
-            allFacilities={facilities}
+            facilities={tabFacilities}
             bookings={visibleBookings}
-            facilityName={facilityName}
-            facilityColor={facilityColor}
             organizationName={organizationName}
             onSelect={setSelectedBooking}
             onContextMenu={openContextMenu}
@@ -767,23 +894,12 @@ export function CalendarClient({
             onDayDoubleClick={openNewBookingFor}
             onCommit={(booking, pending) => applyBookingChange(booking, pending, false)}
             onDragActiveChange={setDayDragActive}
-          />
-        )}
-        {view === "facilitet" && (
-          <FacilityWeekView
-            weekStart={rangeStart}
-            facilities={facilities.filter((f) => !f.archived && selectedFacilityIds.has(f.id))}
-            bookings={visibleBookings}
-            organizationName={organizationName}
-            onSelect={setSelectedBooking}
-            onContextMenu={openContextMenu}
-            onDayDoubleClick={openNewBookingFor}
           />
         )}
         {view === "dag" && (
           <DayGridView
             day={rangeStart}
-            facilities={facilities.filter((f) => !f.archived && selectedFacilityIds.has(f.id))}
+            facilities={tabFacilities}
             bookings={visibleBookings}
             organizationName={organizationName}
             onSelect={setSelectedBooking}
@@ -791,21 +907,6 @@ export function CalendarClient({
             onDayDoubleClick={openNewBookingFor}
             onCommit={(booking, pending) => applyBookingChange(booking, pending, false)}
             onDragActiveChange={setDayDragActive}
-          />
-        )}
-        {view === "maaned" && (
-          <MonthView
-            monthStart={rangeStart}
-            bookings={visibleBookings}
-            facilityName={facilityName}
-            facilityColor={facilityColor}
-            organizationName={organizationName}
-            onSelect={setSelectedBooking}
-            onContextMenu={openContextMenu}
-            notesForDay={notesForDay}
-            onAddNote={(dateStr) => setNoteModal({ date: dateStr })}
-            onEditNote={(note) => setNoteModal({ date: note.date, note })}
-            onDayDoubleClick={openNewBookingFor}
           />
         )}
       </div>
@@ -1063,240 +1164,6 @@ function BookingContextMenu({
   );
 }
 
-function BookingCard({
-  booking,
-  facilityName,
-  facilityColor,
-  organizationNameStr,
-  onSelect,
-  onContextMenu,
-  compact,
-  dayStr,
-}: {
-  booking: BookingDTO;
-  facilityName: string;
-  facilityColor?: string;
-  organizationNameStr?: string;
-  onSelect: (b: BookingDTO) => void;
-  onContextMenu?: (e: ReactMouseEvent, b: BookingDTO) => void;
-  compact?: boolean;
-  /** Den dag kortet vises under - bruges til tidsteksten ved flerdagsbookinger. */
-  dayStr?: string;
-}) {
-  const isSeason = !!booking.seasonGroupId;
-  return (
-    <button
-      onClick={() => onSelect(booking)}
-      // Forhindrer at et dobbeltklik på et booking-kort bobler op til
-      // dagscellen og fejlagtigt åbner "Ny booking" for dagen ovenpå.
-      onDoubleClick={(e) => e.stopPropagation()}
-      onContextMenu={(e) => onContextMenu?.(e, booking)}
-      title={bookingTooltip(booking, facilityName, organizationNameStr)}
-      className={`w-full text-left rounded-lg border px-2.5 py-1.5 text-xs hover:shadow-sm transition-shadow ${
-        BOOKING_STATUS_CLASSES[booking.status] ?? "bg-slate-100 border-slate-300"
-      } ${booking.important ? IMPORTANT_ACCENT_CLASS : isSeason ? SEASON_ACCENT_CLASS : ""}`}
-      style={facilityCardStyle(facilityColor, booking.status)}
-    >
-      <div className="font-medium truncate">
-        {booking.important && (
-          <span title="VIGTIG/KAMP" className="mr-1">
-            ⚑
-          </span>
-        )}
-        {isSeason && (
-          <span title="Sæsonbooking - gentages ugentligt" className="mr-1">
-            ↻
-          </span>
-        )}
-        {booking.title}
-      </div>
-      {!compact && <div className="opacity-75">{facilityName}</div>}
-      <div className="opacity-75">
-        {dayStr ? dayTimeLabel(booking, dayStr) : `${formatDaTime(booking.startsAt)}-${formatDaTime(booking.endsAt)}`}
-      </div>
-    </button>
-  );
-}
-
-function ListView({
-  bookings,
-  facilityName,
-  facilityColor,
-  organizationName,
-  onSelect,
-  onContextMenu,
-}: {
-  bookings: BookingDTO[];
-  facilityName: (id: string) => string;
-  facilityColor: (id: string) => string;
-  organizationName: (id: string | null) => string | undefined;
-  onSelect: (b: BookingDTO) => void;
-  onContextMenu: (e: ReactMouseEvent, b: BookingDTO) => void;
-}) {
-  const byDay = new Map<string, BookingDTO[]>();
-  for (const b of bookings) {
-    // En flerdagsbooking vises under hver af de dage den optager.
-    const last = bookingLastDay(b);
-    let day = b.startsAt.slice(0, 10);
-    for (let guard = 0; day <= last && guard < 62; guard++) {
-      if (!byDay.has(day)) byDay.set(day, []);
-      byDay.get(day)!.push(b);
-      day = localISODate(addDays(new Date(`${day}T00:00:00`), 1));
-    }
-  }
-  const days = [...byDay.keys()].sort();
-
-  if (days.length === 0) {
-    return <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center text-slate-400">Ingen bookinger i perioden.</div>;
-  }
-
-  return (
-    <div className="space-y-4">
-      {days.map((day) => (
-        <div key={day} className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-          <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 font-medium text-sm text-slate-700 capitalize">
-            {formatDaDate(day + "T00:00:00")}
-          </div>
-          <div className="divide-y divide-slate-100">
-            {byDay.get(day)!.map((b) => (
-              <button
-                key={b.id}
-                onClick={() => onSelect(b)}
-                onContextMenu={(e) => onContextMenu(e, b)}
-                title={bookingTooltip(b, facilityName(b.facilityId), organizationName(b.organizationId))}
-                className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 text-left border-l-[6px]"
-                style={facilityCardStyle(facilityColor(b.facilityId), b.status)}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: facilityColor(b.facilityId) }} />
-                  <div>
-                    <div className="font-medium text-slate-800 text-sm">
-                      {b.important && (
-                        <span title="VIGTIG/KAMP" className="mr-1">
-                          ⚑
-                        </span>
-                      )}
-                      {b.seasonGroupId && (
-                        <span title="Sæsonbooking - gentages ugentligt" className="mr-1">
-                          ↻
-                        </span>
-                      )}
-                      {b.title}
-                    </div>
-                    <div className="text-xs text-slate-500">{facilityName(b.facilityId)}</div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-medium text-slate-600">{dayTimeLabel(b, day)}</div>
-                  <div className="flex items-center justify-end gap-1 mt-0.5">
-                    <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full border ${BOOKING_STATUS_CLASSES[b.status]}`}>
-                      {BOOKING_STATUS_LABELS[b.status]}
-                    </span>
-                    {b.important && (
-                      <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full border ${IMPORTANT_BADGE_CLASSES}`}>
-                        {IMPORTANT_BADGE_LABEL}
-                      </span>
-                    )}
-                    {b.seasonGroupId && (
-                      <span className={`inline-block text-[11px] px-1.5 py-0.5 rounded-full border ${SEASON_BADGE_CLASSES}`}>
-                        {SEASON_BADGE_LABEL}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function WeekView({
-  weekStart,
-  bookings,
-  facilityName,
-  facilityColor,
-  organizationName,
-  onSelect,
-  onContextMenu,
-  notesForDay,
-  onAddNote,
-  onEditNote,
-  onDayDoubleClick,
-}: {
-  weekStart: Date;
-  bookings: BookingDTO[];
-  facilityName: (id: string) => string;
-  facilityColor: (id: string) => string;
-  organizationName: (id: string | null) => string | undefined;
-  onSelect: (b: BookingDTO) => void;
-  onContextMenu: (e: ReactMouseEvent, b: BookingDTO) => void;
-  notesForDay: (dateStr: string) => DayNoteDTO[];
-  onAddNote: (dateStr: string) => void;
-  onEditNote: (note: DayNoteDTO) => void;
-  onDayDoubleClick: (dateStr: string) => void;
-}) {
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
-      {days.map((d, i) => {
-        const dayStr = localISODate(d);
-        const dayBookings = bookings
-          .filter((b) => bookingOnDay(b, dayStr))
-          .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-        const isToday = dayStr === localISODate();
-        return (
-          <div
-            key={dayStr}
-            onDoubleClick={() => onDayDoubleClick(dayStr)}
-            title="Dobbeltklik for at oprette en booking denne dag"
-            className="rounded-2xl border border-slate-200 bg-white overflow-hidden min-h-[140px] cursor-pointer"
-          >
-            <div
-              className={`px-3 py-2 text-xs font-semibold border-b border-slate-100 flex items-center justify-between ${
-                isToday ? "bg-blue-50 text-blue-700" : "text-slate-500"
-              }`}
-            >
-              <span>
-                {WEEKDAY_SHORT[i]} {d.getDate()}/{d.getMonth() + 1}
-              </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAddNote(dayStr);
-                }}
-                title="Tilføj dagsnote"
-                className="text-slate-400 hover:text-amber-600 leading-none px-1"
-              >
-                +note
-              </button>
-            </div>
-            <DayNoteBadges notes={notesForDay(dayStr)} onEditNote={onEditNote} />
-            <div className="p-2 space-y-1.5">
-              {dayBookings.length === 0 && <div className="text-[11px] text-slate-300 px-1 py-2">Ledig</div>}
-              {dayBookings.map((b) => (
-                <BookingCard
-                  key={b.id}
-                  booking={b}
-                  facilityName={facilityName(b.facilityId)}
-                  facilityColor={facilityColor(b.facilityId)}
-                  organizationNameStr={organizationName(b.organizationId)}
-                  onSelect={onSelect}
-                  onContextMenu={onContextMenu}
-                  compact
-                  dayStr={dayStr}
-                />
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 /**
  * Dagsnoter (fx "Tekniker kommer til ventilationen kl. 10") vist som gule
  * bjælker øverst i en dagscelle - genbruges af både uge- og månedsvisningen.
@@ -1319,119 +1186,6 @@ function DayNoteBadges({ notes, onEditNote }: { notes: DayNoteDTO[]; onEditNote:
           {n.text}
         </button>
       ))}
-    </div>
-  );
-}
-
-/**
- * Ressourcevisning: hver valgt facilitet får sin egen ugeblok med 7
- * dagskolonner ved siden af hinanden - så man fx kan sammenligne Multisalen,
- * Opvisningshallen og Træningshallen for samme uge på én gang, ligesom i
- * GIBBS' kalender. Hvilke faciliteter der vises styres af "Vis
- * faciliteter"-filteret i venstre side; man blader i ugerne med
- * pil-knapperne ved siden af visningsvælgeren.
- */
-function FacilityWeekView({
-  weekStart,
-  facilities,
-  bookings,
-  organizationName,
-  onSelect,
-  onContextMenu,
-  onDayDoubleClick,
-}: {
-  weekStart: Date;
-  facilities: FacilityDTO[];
-  bookings: BookingDTO[];
-  organizationName: (id: string | null) => string | undefined;
-  onSelect: (b: BookingDTO) => void;
-  onContextMenu: (e: ReactMouseEvent, b: BookingDTO) => void;
-  onDayDoubleClick: (dateStr: string, facilityId: string) => void;
-}) {
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-
-  if (facilities.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center text-slate-400">
-        Vælg mindst én facilitet i venstre side for at se ugeoversigten.
-      </div>
-    );
-  }
-
-  return (
-    <div className="overflow-x-auto pb-2">
-      {/* Kolonnerne er fleksible (flex-1) i stedet for en fast bredde, så et
-          lille antal valgte faciliteter (fx standardvalget på tre) deler
-          hele den ledige bredde imellem sig og kan ses samtidig uden
-          sidescroll. min-w-[260px] sikrer stadig læsbare dagsceller hvis
-          mange faciliteter vælges på én gang - så falder man tilbage til
-          vandret scroll (overflow-x-auto ovenfor), som før. Selve
-          kolonneoverskriften er nu farvet i facilitetens egen farve (i
-          stedet for kun en lille prik), så det er tydeligt hvilken hal man
-          kigger på, når flere står ved siden af hinanden. */}
-      <div className="flex gap-4 min-w-full align-top">
-        {facilities.map((f) => (
-          <div key={f.id} className="flex-1 min-w-[260px] max-w-[560px]">
-            <div
-              className="flex items-center gap-2 mb-2 px-2.5 py-1.5 rounded-lg"
-              style={{ backgroundColor: hexToRgba(f.color ?? "#64748b", 0.16) }}
-            >
-              <span className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: f.color ?? "#64748b" }} />
-              <div className="font-semibold text-sm text-slate-800 truncate">{f.name}</div>
-            </div>
-            <div className="grid grid-cols-7 gap-1.5">
-              {days.map((d, i) => {
-                const dayStr = localISODate(d);
-                const dayBookings = bookings
-                  .filter((b) => b.facilityId === f.id && bookingOnDay(b, dayStr))
-                  .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-                const isToday = dayStr === localISODate();
-                return (
-                  <div
-                    key={dayStr}
-                    onDoubleClick={() => onDayDoubleClick(dayStr, f.id)}
-                    title="Dobbeltklik for at oprette en booking af denne facilitet denne dag"
-                    className={`rounded-xl border overflow-hidden min-h-[220px] cursor-pointer ${
-                      isToday ? "border-blue-300 bg-blue-50/40" : "border-slate-200 bg-white"
-                    }`}
-                  >
-                    <div
-                      className={`px-1.5 py-1.5 text-[11px] font-semibold text-center border-b ${
-                        isToday ? "text-blue-700 border-blue-200" : "text-slate-500 border-slate-100"
-                      }`}
-                    >
-                      {WEEKDAY_SHORT[i]} {d.getDate()}/{d.getMonth() + 1}
-                    </div>
-                    <div className="p-1 space-y-1">
-                      {dayBookings.length === 0 && <div className="text-[10px] text-slate-300 px-1 py-2 text-center">Ledig</div>}
-                      {dayBookings.map((b) => (
-                        <button
-                          key={b.id}
-                          onClick={() => onSelect(b)}
-                          onDoubleClick={(e) => e.stopPropagation()}
-                          onContextMenu={(e) => onContextMenu(e, b)}
-                          title={bookingTooltip(b, f.name, organizationName(b.organizationId))}
-                          className={`w-full text-left rounded-lg px-1.5 py-1 text-[10px] border hover:shadow-sm transition-shadow ${
-                            BOOKING_STATUS_CLASSES[b.status] ?? "bg-slate-100 border-slate-300"
-                          } ${b.important ? IMPORTANT_ACCENT_CLASS : b.seasonGroupId ? SEASON_ACCENT_CLASS : ""}`}
-                          style={facilityCardStyle(f.color, b.status)}
-                        >
-                          <div className="font-medium truncate">
-                            {b.important && <span className="mr-0.5">⚑</span>}
-                            {b.seasonGroupId && <span className="mr-0.5">↻</span>}
-                            {b.title}
-                          </div>
-                          <div className="opacity-75">{dayTimeLabel(b, dayStr)}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -1677,7 +1431,7 @@ function DayGridView({
   if (facilities.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center text-slate-400">
-        Vælg mindst én facilitet i venstre side for at se dagsplanen.
+        Ingen faciliteter i denne fane.
       </div>
     );
   }
@@ -1756,11 +1510,9 @@ function DayGridView({
                         right: 2,
                         touchAction: "none",
                         zIndex: isDragged ? 30 : 10,
-                        ...facilityCardStyle(f.color, b.status),
+                        ...bookingVisual(f.color ?? "#64748b", b).style,
                       }}
-                      className={`rounded-lg border px-1.5 py-1 text-[10px] overflow-hidden cursor-grab active:cursor-grabbing shadow-sm ${
-                        BOOKING_STATUS_CLASSES[b.status] ?? "bg-slate-100 border-slate-300"
-                      } ${b.important ? IMPORTANT_ACCENT_CLASS : b.seasonGroupId ? SEASON_ACCENT_CLASS : ""} ${isDragged ? "opacity-90 ring-2 ring-blue-400" : ""}`}
+                      className={`rounded-lg px-1.5 py-1 text-[11px] overflow-hidden cursor-grab active:cursor-grabbing shadow-sm ${bookingVisual(f.color ?? "#64748b", b).className} ${isDragged ? "opacity-90 ring-2 ring-blue-400" : ""}`}
                     >
                       <div
                         onPointerDown={(e) => startDrag(e, b, "resize-top")}
@@ -1803,120 +1555,57 @@ function DayGridView({
   );
 }
 
-interface WeekDragState {
-  bookingId: string;
-  mode: DayDragMode;
-  startClientY: number;
-  originDayStr: string;
-  originStartMin: number;
-  originEndMin: number;
-  currentDayStr: string;
-  currentStartMin: number;
-  currentEndMin: number;
-  weekShift: number;
+/** Lille nøgle der forklarer kortenes udseende: enkeltbooking, sæson, kamp og afventer. */
+function CalendarLegend() {
+  const demo = "#2563eb";
+  const solid = bookingVisual(demo, { status: "bekraeftet", seasonGroupId: null, important: false } as BookingDTO);
+  const season = bookingVisual(demo, { status: "bekraeftet", seasonGroupId: "x", important: false } as BookingDTO);
+  const waiting = bookingVisual(demo, { status: "afventer_godkendelse", seasonGroupId: null, important: false } as BookingDTO);
+  const important = bookingVisual(demo, { status: "bekraeftet", seasonGroupId: null, important: true } as BookingDTO);
+  const chip = "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold";
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-500">
+      <span className="font-semibold uppercase tracking-wide text-slate-400">Forklaring</span>
+      <span className={`${chip} ${solid.className}`} style={solid.style}>
+        Enkeltbooking
+      </span>
+      <span className={`${chip} ${season.className}`} style={season.style}>
+        ↻ Sæsonbooking (gentages ugentligt)
+      </span>
+      <span className={`${chip} ${important.className}`} style={important.style}>
+        ⚑ Vigtig/kamp
+      </span>
+      <span className={`${chip} ${waiting.className}`} style={waiting.style}>
+        Afventer
+      </span>
+      <span className="text-slate-400">Dobbeltklik i en celle for at oprette en booking. Højreklik på en booking for hurtige handlinger.</span>
+    </div>
+  );
+}
+
+const WEEKDAY_FULL = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"];
+
+function fmtHM(min: number): string {
+  return `${String(Math.floor(min / 60) % 24).padStart(2, "0")}.${String(min % 60).padStart(2, "0")}`;
 }
 
 /**
- * Pakker overlappende bookinger på samme dag ind i "baner" (lanes) side om
- * side, så to samtidige bookinger (fx to forskellige haller på samme
- * klokkeslæt) ikke visuelt overlapper hinanden i ugeplanens dag-kolonner -
- * i modsætning til Dagsplan-visningen, hvor hver facilitet allerede har sin
- * egen kolonne, har ugeplanens kolonner kun plads til én dimension (dagen),
- * så facilitets-adskillelsen må ske vandret INDENFOR dagens kolonne i
- * stedet. Grupperer først transitivt overlappende bookinger i klynger, og
- * fordeler dem derefter grådigt i baner indenfor hver klynge (samme
- * standardteknik som de fleste kalender-UI'er bruger).
- */
-function layoutDayBookings(
-  dayBookings: BookingDTO[],
-  orderKey: (b: BookingDTO) => string,
-  dayStr: string
-): Map<string, { lane: number; laneCount: number }> {
-  const events = dayBookings
-    .map((b) => {
-      const { startMin, endMin } = daySegment(b, dayStr);
-      return { b, startMin, endMin };
-    })
-    .sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
-
-  const layout = new Map<string, { lane: number; laneCount: number }>();
-  let cluster: typeof events = [];
-  let clusterMaxEnd = -Infinity;
-
-  // Hver facilitet i en klynge får sin egen faste placering (venstre mod
-  // højre) efter `orderKey` - dvs. altid Opvisningshallen, Træningshallen,
-  // Multisalen - uanset hvem der er booket først (Martin). Overlapper to
-  // bookinger i SAMME facilitet, deler de facilitetens plads i under-baner.
-  function flush() {
-    if (cluster.length === 0) return;
-    const groups = new Map<string, typeof events>();
-    for (const ev of cluster) {
-      const key = orderKey(ev.b);
-      const list = groups.get(key) ?? [];
-      list.push(ev);
-      groups.set(key, list);
-    }
-    const keys = Array.from(groups.keys()).sort();
-    const assigned: { id: string; lane: number }[] = [];
-    let laneOffset = 0;
-    for (const key of keys) {
-      const laneEnds: number[] = [];
-      for (const ev of groups.get(key)!) {
-        let lane = laneEnds.findIndex((end) => end <= ev.startMin);
-        if (lane === -1) {
-          lane = laneEnds.length;
-          laneEnds.push(ev.endMin);
-        } else {
-          laneEnds[lane] = ev.endMin;
-        }
-        assigned.push({ id: ev.b.id, lane: laneOffset + lane });
-      }
-      laneOffset += laneEnds.length;
-    }
-    for (const a of assigned) layout.set(a.id, { lane: a.lane, laneCount: laneOffset });
-    cluster = [];
-    clusterMaxEnd = -Infinity;
-  }
-
-  for (const ev of events) {
-    if (cluster.length > 0 && ev.startMin >= clusterMaxEnd) {
-      flush();
-    }
-    cluster.push(ev);
-    clusterMaxEnd = Math.max(clusterMaxEnd, ev.endMin);
-  }
-  flush();
-
-  return layout;
-}
-
-/**
- * Ugeplan: samme slags tidsakse-skema som Dagsplan, men for en hel uge ad
- * gangen - ugens 7 dage som kolonner og klokkeslæt ned ad y-aksen, i stedet
- * for facilitet-kolonner (Martin efterspurgte "den samme visning" i en
- * ugevisning). Facilitet vises i stedet via farve + navn på selve kortet,
- * og flere samtidige bookinger på samme dag pakkes side om side (se
- * `layoutDayBookings`).
+ * Ugeplan (ny): ét overskueligt skema for ugen med en RÆKKE pr. facilitet og en
+ * KOLONNE pr. dag. Hver booking er et farvet kort i sin facilitets række, sorteret
+ * efter klokkeslæt - så man med ét blik kan se, hvad der sker i hver hal/lokale
+ * hver dag. Facilitetens farve gennemgår hele rækken; enkeltbookinger er fyldte,
+ * sæsonbookinger er lette (se `bookingVisual`).
  *
- * - Træk et kort: flytter bookingen til et nyt klokkeslæt (rundet til
- *   nærmeste halve time) og/eller en anden dag i ugen. Faciliteten ændres
- *   IKKE her (der er ingen facilitet-kolonne at slippe den i) - skift af
- *   facilitet foregår stadig via redigering af selve bookingen.
- * - Træk hen over pil-knapperne i værktøjslinjen ("forrige/næste uge"):
- *   flytter bookingen en hel uge frem eller tilbage, uændret klokkeslæt/dag
- *   i ugen/facilitet.
- * - Træk i kortets top- eller bundkant: forlænger/afkorter bookingen.
- *
- * Konflikt ved slip håndteres af `onCommit` i CalendarClient med samme
- * to-valgsboks som Dagsplan og almindelig redigering.
+ * - Klik: åbner bookingen. Højreklik: hurtigmenu. Dobbeltklik i en celle: ny booking
+ *   den dag i den facilitet.
+ * - Træk et kort til en anden celle: flytter bookingen til den dag og/eller facilitet
+ *   (uændret klokkeslæt). Træk det hen på ←/→-knapperne: flytter det en uge.
+ *   Flytning af tidspunkt sker i Dagsplan (eller via "Rediger").
  */
-function WeekGridView({
+function WeekMatrixView({
   weekStart,
   facilities,
-  allFacilities,
   bookings,
-  facilityName,
-  facilityColor,
   organizationName,
   onSelect,
   onContextMenu,
@@ -1929,10 +1618,7 @@ function WeekGridView({
 }: {
   weekStart: Date;
   facilities: FacilityDTO[];
-  allFacilities: FacilityDTO[];
   bookings: BookingDTO[];
-  facilityName: (id: string) => string;
-  facilityColor: (id: string) => string;
   organizationName: (id: string | null) => string | undefined;
   onSelect: (b: BookingDTO) => void;
   onContextMenu: (e: ReactMouseEvent, b: BookingDTO) => void;
@@ -1945,358 +1631,197 @@ function WeekGridView({
 }) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const dayStrs = days.map((d) => localISODate(d));
+  const todayStr = localISODate();
+  const [dropKey, setDropKey] = useState<string | null>(null);
 
-  const [drag, setDrag] = useState<WeekDragState | null>(null);
-  const dragRef = useRef<WeekDragState | null>(null);
-  const bookingsRef = useRef<BookingDTO[]>(bookings);
+  const live = bookings.filter((b) => b.status !== "aflyst" && b.status !== "afvist");
 
-  useEffect(() => {
-    dragRef.current = drag;
-  }, [drag]);
-
-  useEffect(() => {
-    bookingsRef.current = bookings;
-  }, [bookings]);
-
-  useEffect(() => {
-    onDragActiveChange(drag !== null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drag !== null]);
-
-  const weekBookings = bookings.filter(
-    (b) => dayStrs.some((d) => bookingOnDay(b, d)) && b.status !== "aflyst" && b.status !== "afvist"
-  );
-
-  let gridStartMin = DAY_GRID_START_MIN;
-  let gridEndMin = DAY_GRID_END_MIN;
-  for (const b of weekBookings) {
-    const s = Math.min(...dayStrs.filter((d) => bookingOnDay(b, d)).map((d) => daySegment(b, d).startMin));
-    const e = Math.max(...dayStrs.filter((d) => bookingOnDay(b, d)).map((d) => daySegment(b, d).endMin));
-    if (s < gridStartMin) gridStartMin = Math.floor(s / 60) * 60;
-    if (e > gridEndMin) gridEndMin = Math.ceil(e / 60) * 60;
+  function cellBookings(facilityId: string, dayStr: string): BookingDTO[] {
+    return live
+      .filter((b) => b.facilityId === facilityId && bookingOnDay(b, dayStr))
+      .sort((a, b) => daySegment(a, dayStr).startMin - daySegment(b, dayStr).startMin);
   }
 
-  const totalMinutes = gridEndMin - gridStartMin;
-  // Fast hal-rækkefølge i ugeplanen: Opvisningshallen, Træningshallen, Multisalen
-  // (underfaciliteter følger deres hal), derefter alt andet.
-  const laneOrderKey = (b: BookingDTO): string => {
-    let f = allFacilities.find((x) => x.id === b.facilityId);
-    const own = f?.name ?? "";
-    for (let i = 0; i < 5 && f?.parentId; i++) f = allFacilities.find((x) => x.id === f!.parentId) ?? f;
-    const hall = (f?.name ?? own).toLowerCase();
-    const rank = hall.includes("opvisning") ? 0 : hall.includes("træning") ? 1 : hall.includes("multisal") ? 2 : 3;
-    return `${rank}|${own}|${b.facilityId}`;
-  };
-  const gridHeight = totalMinutes * DAY_GRID_PX_PER_MIN;
-  const hourMarks = Array.from({ length: totalMinutes / 60 + 1 }, (_, i) => gridStartMin + i * 60);
-
-  function startDrag(e: ReactPointerEvent, booking: BookingDTO, mode: DayDragMode) {
-    if (e.button !== 0) return;
-    // Flerdagsbookinger kan ikke trækkes her (klik åbner dem) - ændres via redigering.
-    if (isMultiDay(booking)) return;
-    e.stopPropagation();
+  function handleDrop(e: React.DragEvent, dayStr: string, facilityId: string) {
     e.preventDefault();
-    const start = parseNaiveDateTime(booking.startsAt);
-    const end = parseNaiveDateTime(booking.endsAt);
-    const initial: WeekDragState = {
-      bookingId: booking.id,
-      mode,
-      startClientY: e.clientY,
-      originDayStr: booking.startsAt.slice(0, 10),
-      originStartMin: minutesOfDay(start),
-      originEndMin: minutesOfDay(end),
-      currentDayStr: booking.startsAt.slice(0, 10),
-      currentStartMin: minutesOfDay(start),
-      currentEndMin: minutesOfDay(end),
-      weekShift: 0,
-    };
-    dragRef.current = initial;
-    setDrag(initial);
+    e.stopPropagation();
+    setDropKey(null);
+    onDragActiveChange(false);
+    const id = e.dataTransfer.getData("text/plain");
+    const booking = bookings.find((b) => b.id === id);
+    if (!booking || isMultiDay(booking)) return;
+    const originDay = booking.startsAt.slice(0, 10);
+    const deltaDays = Math.round(
+      (new Date(`${dayStr}T00:00:00`).getTime() - new Date(`${originDay}T00:00:00`).getTime()) / 86400000
+    );
+    if (deltaDays === 0 && facilityId === booking.facilityId) return;
+    const newStart = addDays(parseNaiveDateTime(booking.startsAt), deltaDays);
+    const newEnd = addDays(parseNaiveDateTime(booking.endsAt), deltaDays);
+    onCommit(booking, {
+      facilityId,
+      startsAt: toNaiveDateTimeString(newStart),
+      endsAt: toNaiveDateTimeString(newEnd),
+    });
   }
-
-  function computeNext(prev: WeekDragState, clientX: number, clientY: number): WeekDragState {
-    const deltaY = clientY - prev.startClientY;
-    const snappedDeltaMin = Math.round(deltaY / DAY_GRID_PX_PER_MIN / 30) * 30;
-
-    let dayStr = prev.originDayStr;
-    let weekShift = 0;
-    const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
-    const col = el?.closest("[data-day-col]") as HTMLElement | null;
-    if (prev.mode === "move" && col?.dataset.dayCol) dayStr = col.dataset.dayCol;
-    const shiftEl = el?.closest("[data-day-shift]") as HTMLElement | null;
-    if (prev.mode === "move" && shiftEl?.dataset.dayShift) weekShift = Number(shiftEl.dataset.dayShift);
-
-    let startMin = prev.originStartMin;
-    let endMin = prev.originEndMin;
-    if (weekShift !== 0) {
-      // Som i Dagsplan: hen over uge-pilene skal klokkeslæt/dag-i-ugen ikke
-      // ændres af den lodrette afstand dertil - kun selve ugen flyttes,
-      // beregnet ud fra origin + weekShift ved selve slippet.
-      dayStr = prev.originDayStr;
-    } else if (prev.mode === "move") {
-      const duration = prev.originEndMin - prev.originStartMin;
-      startMin = clampMinutes(prev.originStartMin + snappedDeltaMin, gridStartMin, gridEndMin - duration);
-      endMin = startMin + duration;
-    } else if (prev.mode === "resize-bottom") {
-      endMin = clampMinutes(prev.originEndMin + snappedDeltaMin, prev.originStartMin + 30, gridEndMin);
-    } else if (prev.mode === "resize-top") {
-      startMin = clampMinutes(prev.originStartMin + snappedDeltaMin, gridStartMin, prev.originEndMin - 30);
-    }
-
-    return { ...prev, currentDayStr: dayStr, currentStartMin: startMin, currentEndMin: endMin, weekShift };
-  }
-
-  useEffect(() => {
-    if (!drag) return undefined;
-
-    function handleMove(clientX: number, clientY: number) {
-      const prev = dragRef.current;
-      if (!prev) return;
-      const next = computeNext(prev, clientX, clientY);
-      dragRef.current = next;
-      setDrag(next);
-    }
-
-    function handleUp(clientX: number, clientY: number) {
-      const prev = dragRef.current;
-      dragRef.current = null;
-      setDrag(null);
-      if (!prev) return;
-      const final = computeNext(prev, clientX, clientY);
-      const booking = bookingsRef.current.find((b) => b.id === final.bookingId);
-      if (!booking) return;
-      const nothingChanged =
-        final.currentDayStr === final.originDayStr &&
-        final.currentStartMin === final.originStartMin &&
-        final.currentEndMin === final.originEndMin &&
-        final.weekShift === 0;
-      if (nothingChanged) {
-        onSelect(booking);
-        return;
-      }
-      const targetDayStr =
-        final.weekShift !== 0
-          ? localISODate(addDays(new Date(`${final.originDayStr}T00:00:00`), final.weekShift))
-          : final.currentDayStr;
-      onCommit(booking, {
-        facilityId: booking.facilityId,
-        startsAt: minutesToNaiveDateTimeString(targetDayStr, final.currentStartMin),
-        endsAt: minutesToNaiveDateTimeString(targetDayStr, final.currentEndMin),
-      });
-    }
-
-    function onPointerMove(e: PointerEvent) {
-      handleMove(e.clientX, e.clientY);
-    }
-    function onPointerUp(e: PointerEvent) {
-      handleUp(e.clientX, e.clientY);
-    }
-    function onMouseMove(e: MouseEvent) {
-      handleMove(e.clientX, e.clientY);
-    }
-    function onMouseUp(e: MouseEvent) {
-      handleUp(e.clientX, e.clientY);
-    }
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    return () => {
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drag !== null]);
 
   if (facilities.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center text-slate-400">
-        Vælg mindst én facilitet i venstre side for at se ugeplanen.
+        Ingen faciliteter i denne fane.
       </div>
     );
   }
 
+  const gridCols = { gridTemplateColumns: "10rem repeat(7, minmax(9.5rem, 1fr))" } as CSSProperties;
+
   return (
-    <div className="select-none">
-      {/* Egen rullezone (både lodret og vandret), så dag/dato-linjen kan fryses øverst. */}
-      <div className="overflow-auto pb-2 max-h-[calc(100vh-9rem)]">
-        <div className="flex min-w-full items-start">
-          {/* Tidsakse-gutter */}
-          <div className="w-12 shrink-0 relative" style={{ height: gridHeight + 56 }}>
-            {hourMarks.map((m) => (
-              <div
-                key={m}
-                className="absolute right-1 -translate-y-1/2 text-[11px] text-slate-400"
-                style={{ top: 56 + (m - gridStartMin) * DAY_GRID_PX_PER_MIN }}
-              >
-                {String(Math.floor(m / 60) % 24).padStart(2, "0")}.00
-              </div>
-            ))}
-          </div>
-          {days.map((d, i) => {
-            const dayStr = dayStrs[i];
-            const isToday = dayStr === localISODate();
-            const dayBookingsAll = weekBookings.filter((b) => {
-              const isDragged = drag?.bookingId === b.id;
-              return isDragged ? (drag as WeekDragState).currentDayStr === dayStr : bookingOnDay(b, dayStr);
-            });
-            const nonDragged = dayBookingsAll.filter((b) => drag?.bookingId !== b.id);
-            const layout = layoutDayBookings(nonDragged, laneOrderKey, dayStr);
-            const draggedHere = drag && dayBookingsAll.some((b) => b.id === drag.bookingId) ? drag : null;
-            return (
-              <div key={dayStr} className="flex-1 min-w-[150px] px-1">
-                {/* Fastfrosset dag/dato-linje: forbliver synlig når man scroller ned i ugeplanen. */}
-                <div className="sticky top-0 z-30 bg-slate-50">
-                <div
-                  className={`h-8 flex items-center justify-between gap-1.5 rounded-t-lg text-xs font-semibold px-2 truncate ${
-                    isToday ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-800"
+    <div className="rounded-2xl border border-slate-200 bg-white overflow-auto max-h-[calc(100vh-13rem)] shadow-sm">
+      <div className="grid min-w-max md:min-w-full" style={gridCols}>
+        {/* Dag-overskrifter (fastfrosset øverst) */}
+        <div className="sticky top-0 left-0 z-30 bg-slate-100 border-b border-r border-slate-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+          Facilitet
+        </div>
+        {days.map((d, i) => {
+          const dayStr = dayStrs[i];
+          const isToday = dayStr === todayStr;
+          const weekend = i >= 5;
+          return (
+            <div
+              key={dayStr}
+              className={`sticky top-0 z-20 border-b border-slate-200 px-2 py-2 ${
+                isToday ? "bg-blue-600 text-white" : weekend ? "bg-slate-200 text-slate-700" : "bg-slate-100 text-slate-800"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <div className="leading-tight">
+                  <div className="text-sm font-bold">{WEEKDAY_FULL[i]}</div>
+                  <div className={`text-xs ${isToday ? "text-blue-100" : "text-slate-500"}`}>
+                    {d.getDate()}. {d.toLocaleDateString("da-DK", { month: "short" })}
+                    {isToday ? " · i dag" : ""}
+                  </div>
+                </div>
+                <button
+                  onClick={() => onAddNote(dayStr)}
+                  title="Tilføj dagsnote"
+                  className={`text-[11px] leading-none px-1.5 py-1 rounded ${
+                    isToday ? "text-blue-100 hover:bg-blue-500" : "text-slate-500 hover:text-amber-700 hover:bg-amber-100"
                   }`}
                 >
-                  <span>
-                    {WEEKDAY_SHORT[i]} {d.getDate()}/{d.getMonth() + 1}
-                  </span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onAddNote(dayStr);
-                    }}
-                    title="Tilføj dagsnote"
-                    className="text-slate-400 hover:text-amber-600 leading-none px-1"
-                  >
-                    +note
-                  </button>
-                </div>
+                  +note
+                </button>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Dagsnoter */}
+        {dayStrs.some((d) => notesForDay(d).length > 0) && (
+          <>
+            <div className="sticky left-0 z-10 bg-amber-50 border-b border-r border-amber-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+              Dagsnoter
+            </div>
+            {dayStrs.map((dayStr) => (
+              <div key={`n-${dayStr}`} className="bg-amber-50/60 border-b border-amber-100 pb-1.5">
                 <DayNoteBadges notes={notesForDay(dayStr)} onEditNote={onEditNote} />
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* Facilitetsrækker */}
+        {facilities.map((f) => {
+          const color = f.color ?? "#64748b";
+          const nm = shortFacilityName(f.name);
+          return (
+            <div key={f.id} className="contents">
+              <div
+                className="sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-3"
+                style={{ backgroundColor: hexToRgba(color, 0.14), borderLeft: `8px solid ${color}` }}
+              >
+                <div className="text-sm font-bold leading-tight" style={{ color: shadeHex(color, 0.6) }}>
+                  {nm.main}
                 </div>
-                <div
-                  data-day-col={dayStr}
-                  onDoubleClick={(e) => {
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const offsetMin = gridStartMin + (e.clientY - rect.top) / DAY_GRID_PX_PER_MIN;
-                    const snapped = clampMinutes(Math.round(offsetMin / 30) * 30, gridStartMin, gridEndMin - 30);
-                    const hh = String(Math.floor(snapped / 60) % 24).padStart(2, "0");
-                    const mm = String(snapped % 60).padStart(2, "0");
-                    onDayDoubleClick(dayStr, undefined, `${hh}:${mm}`);
-                  }}
-                  title="Dobbeltklik for at oprette en booking på dette tidspunkt"
-                  className="relative rounded-b-lg border border-slate-200 bg-white cursor-pointer"
-                  style={{ height: gridHeight }}
-                >
-                  {hourMarks.map((m) => (
-                    <div
-                      key={m}
-                      className="absolute left-0 right-0 border-t border-slate-100 pointer-events-none"
-                      style={{ top: (m - gridStartMin) * DAY_GRID_PX_PER_MIN }}
-                    />
-                  ))}
-                  {nonDragged.map((b) => {
-                    const { startMin, endMin } = daySegment(b, dayStr, gridStartMin);
-                    const top = (startMin - gridStartMin) * DAY_GRID_PX_PER_MIN;
-                    const height = Math.max(20, (endMin - startMin) * DAY_GRID_PX_PER_MIN);
-                    const laneInfo = layout.get(b.id) ?? { lane: 0, laneCount: 1 };
-                    const widthPct = 100 / laneInfo.laneCount;
-                    const leftPct = laneInfo.lane * widthPct;
-                    return (
-                      <div
-                        key={b.id}
-                        onPointerDown={(e) => startDrag(e, b, "move")}
-                        onClick={isMultiDay(b) ? () => onSelect(b) : undefined}
-                        onContextMenu={(e) => onContextMenu(e, b)}
-                        title={bookingTooltip(b, facilityName(b.facilityId), organizationName(b.organizationId))}
-                        style={{
-                          position: "absolute",
-                          top,
-                          height,
-                          left: `calc(${leftPct}% + 2px)`,
-                          width: `calc(${widthPct}% - 4px)`,
-                          touchAction: "none",
-                          zIndex: 10,
-                          ...facilityCardStyle(facilityColor(b.facilityId), b.status),
-                        }}
-                        className={`rounded-lg border px-1.5 py-1 text-[10px] overflow-hidden cursor-grab active:cursor-grabbing shadow-sm ${
-                          BOOKING_STATUS_CLASSES[b.status] ?? "bg-slate-100 border-slate-300"
-                        } ${b.important ? IMPORTANT_ACCENT_CLASS : b.seasonGroupId ? SEASON_ACCENT_CLASS : ""}`}
-                      >
-                        <div
-                          onPointerDown={(e) => startDrag(e, b, "resize-top")}
-                          className="absolute top-0 left-0 right-0 h-2 cursor-ns-resize"
-                          style={{ touchAction: "none" }}
-                        />
-                        <div className="font-medium truncate leading-tight">
-                          {b.important && <span className="mr-0.5">⚑</span>}
-                          {b.seasonGroupId && <span className="mr-0.5">↻</span>}
-                          {b.title}
-                        </div>
-                        <div className="opacity-75 leading-tight truncate">{facilityName(b.facilityId)}</div>
-                        <div className="opacity-75 leading-tight">
-                          {isMultiDay(b) ? (
-                            dayTimeLabel(b, dayStr)
-                          ) : (
-                            <>
-                              {String(Math.floor(startMin / 60) % 24).padStart(2, "0")}.{String(startMin % 60).padStart(2, "0")}-
-                              {String(Math.floor(endMin / 60) % 24).padStart(2, "0")}.{String(endMin % 60).padStart(2, "0")}
-                            </>
-                          )}
-                        </div>
-                        <div
-                          onPointerDown={(e) => startDrag(e, b, "resize-bottom")}
-                          className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize"
-                          style={{ touchAction: "none" }}
-                        />
-                      </div>
-                    );
-                  })}
-                  {draggedHere &&
-                    (() => {
-                      const b = bookingsRef.current.find((x) => x.id === draggedHere.bookingId);
-                      if (!b) return null;
-                      const startMin = draggedHere.currentStartMin;
-                      const endMin = draggedHere.currentEndMin;
-                      const top = (startMin - gridStartMin) * DAY_GRID_PX_PER_MIN;
-                      const height = Math.max(20, (endMin - startMin) * DAY_GRID_PX_PER_MIN);
+                {nm.sub && <div className="text-[11px] text-slate-500">{nm.sub}</div>}
+                {f.parentId && !nm.sub && <div className="text-[11px] text-slate-400">underfacilitet</div>}
+              </div>
+              {dayStrs.map((dayStr, i) => {
+                const items = cellBookings(f.id, dayStr);
+                const isToday = dayStr === todayStr;
+                const key = `${f.id}|${dayStr}`;
+                return (
+                  <div
+                    key={key}
+                    data-day-col={dayStr}
+                    onDoubleClick={() => onDayDoubleClick(dayStr, f.id)}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (dropKey !== key) setDropKey(key);
+                    }}
+                    onDragLeave={() => setDropKey((k) => (k === key ? null : k))}
+                    onDrop={(e) => handleDrop(e, dayStr, f.id)}
+                    title="Dobbeltklik for at oprette en booking her"
+                    className={`min-h-[5.5rem] space-y-1.5 border-b border-slate-100 p-1.5 cursor-pointer ${
+                      i < 6 ? "border-r border-slate-100" : ""
+                    } ${isToday ? "bg-blue-50/70" : i >= 5 ? "bg-slate-50" : "bg-white"} ${
+                      dropKey === key ? "outline outline-2 -outline-offset-2 outline-blue-500 bg-blue-100/60" : ""
+                    }`}
+                  >
+                    {items.map((b) => {
+                      const v = bookingVisual(color, b);
+                      const { startMin, endMin } = daySegment(b, dayStr);
+                      const multi = isMultiDay(b);
+                      const org = organizationName(b.organizationId);
+                      const season = !!b.seasonGroupId;
                       return (
                         <div
-                          key={b.id + "-dragging"}
-                          onContextMenu={(e) => onContextMenu(e, b)}
-                          style={{
-                            position: "absolute",
-                            top,
-                            height,
-                            left: 2,
-                            right: 2,
-                            touchAction: "none",
-                            zIndex: 30,
-                            ...facilityCardStyle(facilityColor(b.facilityId), b.status),
+                          key={b.id}
+                          draggable={!multi}
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData("text/plain", b.id);
+                            e.dataTransfer.effectAllowed = "move";
+                            onDragActiveChange(true);
                           }}
-                          className={`rounded-lg border px-1.5 py-1 text-[10px] overflow-hidden shadow-sm opacity-90 ring-2 ring-blue-400 ${
-                            BOOKING_STATUS_CLASSES[b.status] ?? "bg-slate-100 border-slate-300"
-                          } ${b.important ? IMPORTANT_ACCENT_CLASS : b.seasonGroupId ? SEASON_ACCENT_CLASS : ""}`}
+                          onDragEnd={() => {
+                            setDropKey(null);
+                            onDragActiveChange(false);
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelect(b);
+                          }}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          onContextMenu={(e) => onContextMenu(e, b)}
+                          title={bookingTooltip(b, f.name, org)}
+                          className={`rounded-lg px-2 py-1.5 shadow-sm hover:shadow-md transition-shadow ${
+                            multi ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
+                          } ${v.className}`}
+                          style={v.style}
                         >
-                          <div className="font-medium truncate leading-tight">
-                            {b.important && <span className="mr-0.5">⚑</span>}
-                            {b.seasonGroupId && <span className="mr-0.5">↻</span>}
-                            {b.title}
+                          <div className="flex items-start justify-between gap-1">
+                            <div className="text-[13px] font-bold leading-tight tabular-nums">
+                              {multi ? dayTimeLabel(b, dayStr) : `${fmtHM(startMin)}–${fmtHM(endMin)}`}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1 text-[12px] leading-none">
+                              {b.important && <span title="VIGTIG/KAMP">⚑</span>}
+                              {season && <span title="Sæsonbooking - gentages ugentligt">↻</span>}
+                            </div>
                           </div>
-                          <div className="opacity-75 leading-tight truncate">{facilityName(b.facilityId)}</div>
-                          <div className="opacity-75 leading-tight">
-                            {String(Math.floor(startMin / 60) % 24).padStart(2, "0")}.{String(startMin % 60).padStart(2, "0")}-
-                            {String(Math.floor(endMin / 60) % 24).padStart(2, "0")}.{String(endMin % 60).padStart(2, "0")}
-                          </div>
+                          <div className="mt-0.5 text-[12.5px] font-semibold leading-snug break-words">{b.title}</div>
+                          {org && <div className="text-[11px] leading-tight opacity-80 truncate">{org}</div>}
+                          {WAITING_STATUSES.has(b.status) && (
+                            <div className="mt-0.5 inline-block rounded bg-amber-300/90 px-1 text-[10px] font-bold text-amber-900">
+                              {BOOKING_STATUS_LABELS[b.status] ?? "Afventer"}
+                            </div>
+                          )}
                         </div>
                       );
-                    })()}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <div className="text-xs text-slate-400 mt-2">
-        Træk et kort for at flytte det til et andet tidspunkt eller en anden dag - eller hen over ←/→-knapperne for
-        at flytte det en uge frem eller tilbage. Træk i kortets top- eller bundkant for at forlænge/afkorte det.
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -2465,115 +1990,6 @@ function SeasonDragConflictBox({
         <button onClick={onDismiss} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 py-1">
           Fortryd flytningen
         </button>
-      </div>
-    </div>
-  );
-}
-
-function MonthView({
-  monthStart,
-  bookings,
-  facilityName,
-  facilityColor,
-  organizationName,
-  onSelect,
-  onContextMenu,
-  notesForDay,
-  onAddNote,
-  onEditNote,
-  onDayDoubleClick,
-}: {
-  monthStart: Date;
-  bookings: BookingDTO[];
-  facilityName: (id: string) => string;
-  facilityColor: (id: string) => string;
-  organizationName: (id: string | null) => string | undefined;
-  onSelect: (b: BookingDTO) => void;
-  onContextMenu: (e: ReactMouseEvent, b: BookingDTO) => void;
-  notesForDay: (dateStr: string) => DayNoteDTO[];
-  onAddNote: (dateStr: string) => void;
-  onEditNote: (note: DayNoteDTO) => void;
-  onDayDoubleClick: (dateStr: string) => void;
-}) {
-  const firstDayOffset = (monthStart.getDay() + 6) % 7;
-  const daysInMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).getDate();
-  const cells: (Date | null)[] = [
-    ...Array.from({ length: firstDayOffset }, () => null),
-    ...Array.from({ length: daysInMonth }, (_, i) => new Date(monthStart.getFullYear(), monthStart.getMonth(), i + 1)),
-  ];
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-      <div className="grid grid-cols-7 border-b border-slate-100">
-        {WEEKDAY_SHORT.map((d) => (
-          <div key={d} className="px-2 py-2 text-xs font-semibold text-slate-500 text-center">
-            {d}
-          </div>
-        ))}
-      </div>
-      <div className="grid grid-cols-7">
-        {cells.map((d, i) => {
-          if (!d) return <div key={i} className="border-b border-r border-slate-100 min-h-[90px] bg-slate-50/50" />;
-          const dayStr = localISODate(d);
-          const dayBookings = bookings.filter((b) => bookingOnDay(b, dayStr));
-          const notes = notesForDay(dayStr);
-          const isToday = dayStr === localISODate();
-          return (
-            <div
-              key={i}
-              onDoubleClick={() => onDayDoubleClick(dayStr)}
-              title="Dobbeltklik for at oprette en booking denne dag"
-              className="border-b border-r border-slate-100 min-h-[90px] p-1.5 cursor-pointer"
-            >
-              <div className="flex items-center justify-between mb-1">
-                <div className={`text-xs font-medium ${isToday ? "text-blue-600" : "text-slate-500"}`}>{d.getDate()}</div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onAddNote(dayStr);
-                  }}
-                  title="Tilføj dagsnote"
-                  className="text-[10px] text-slate-300 hover:text-amber-600 leading-none"
-                >
-                  +note
-                </button>
-              </div>
-              {notes.map((n) => (
-                <button
-                  key={n.id}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEditNote(n);
-                  }}
-                  className="w-full text-left truncate rounded bg-amber-50 border border-amber-200 px-1 py-0.5 text-[9px] text-amber-800 mb-0.5"
-                  title={n.text}
-                >
-                  {n.text}
-                </button>
-              ))}
-              <div className="space-y-1">
-                {dayBookings.slice(0, 3).map((b) => (
-                  <button
-                    key={b.id}
-                    onClick={() => onSelect(b)}
-                    onDoubleClick={(e) => e.stopPropagation()}
-                    onContextMenu={(e) => onContextMenu(e, b)}
-                    title={bookingTooltip(b, facilityName(b.facilityId), organizationName(b.organizationId))}
-                    className={`w-full text-left truncate rounded px-1 py-0.5 text-[10px] border ${BOOKING_STATUS_CLASSES[b.status]} ${
-                      b.important ? IMPORTANT_ACCENT_CLASS : b.seasonGroupId ? SEASON_ACCENT_CLASS : ""
-                    }`}
-                    style={facilityCardStyle(facilityColor(b.facilityId), b.status)}
-                  >
-                    {b.important && "⚑ "}
-                    {b.seasonGroupId && "↻ "}
-                    {b.title}
-                  </button>
-                ))}
-                {dayBookings.length > 3 && <div className="text-[10px] text-slate-400 pl-1">+{dayBookings.length - 3} mere</div>}
-              </div>
-            </div>
-          );
-        })}
       </div>
     </div>
   );
