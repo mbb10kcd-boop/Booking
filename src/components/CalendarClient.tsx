@@ -369,6 +369,26 @@ export function CalendarClient({
   const [bookings, setBookings] = useState<BookingDTO[]>([]);
   const [dayNotes, setDayNotes] = useState<DayNoteDTO[]>([]);
   const [view, setView] = useState<ViewMode>("ugeplan");
+  // "Stille flytning": når slået til, kommer flytninger (træk/slip og "flyt til i morgen/i går") hverken på aflysningslisten eller som mail.
+  const [silentMove, setSilentMove] = useState(false);
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (window.localStorage.getItem("kalender-stille-flyt") === "1") setSilentMove(true);
+    } catch {
+      // localStorage kan mangle - så er den bare slået fra.
+    }
+  }, []);
+  function toggleSilentMove() {
+    setSilentMove((v) => {
+      try {
+        window.localStorage.setItem("kalender-stille-flyt", v ? "0" : "1");
+      } catch {
+        // ignorer
+      }
+      return !v;
+    });
+  }
   const [anchor, setAnchor] = useState(new Date());
   // Faneblade (HALLER, MØDELOKALER, KLATREVÆG, PICKLEBALL) erstatter det tidligere "Vis faciliteter"-filter.
   const tabs = useMemo(() => buildFacilityTabs(initialFacilities), [initialFacilities]);
@@ -563,6 +583,41 @@ export function CalendarClient({
     setContextMenu({ x: e.clientX, y: e.clientY, booking });
   }
 
+  /** "Slet stille": bookingen fjernes, men kommer ikke på aflysningslisten på hjemmesiden, og der sendes ingen mail. */
+  async function quickSilentDelete(booking: BookingDTO) {
+    const label = booking.seasonGroupId ? "denne dags forekomst af" : "";
+    if (
+      !window.confirm(
+        `Slet ${label} "${booking.title}" STILLE?\n\nDen kommer IKKE på aflysningslisten på hjemmesiden, og der sendes ingen mail.`.replace("  ", " ")
+      )
+    )
+      return;
+    setContextMenu(null);
+    await fetch(`/api/bookings/${booking.id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ silent: true }),
+    });
+    loadBookings();
+  }
+
+  async function quickSilentDeleteSeason(booking: BookingDTO) {
+    if (!booking.seasonGroupId) return;
+    if (
+      !window.confirm(
+        `Slet HELE sæsonen "${booking.title}" (alle kommende forekomster) STILLE?\n\nDen kommer IKKE på aflysningslisten på hjemmesiden, og der sendes ingen mail.`
+      )
+    )
+      return;
+    setContextMenu(null);
+    await fetch(`/api/bookings/season/${booking.seasonGroupId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ silent: true }),
+    });
+    loadBookings();
+  }
+
   async function quickCancelBooking(booking: BookingDTO) {
     const label = booking.seasonGroupId ? "denne dags forekomst af" : "";
     if (!window.confirm(`Aflys ${label} "${booking.title}"?`.replace("  ", " "))) return;
@@ -645,7 +700,7 @@ export function CalendarClient({
     const res = await fetch(`/api/bookings/${booking.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...pending, force }),
+      body: JSON.stringify({ ...pending, force, silent: silentMove }),
     });
     setDragBusy(false);
     if (res.status === 409) {
@@ -673,7 +728,7 @@ export function CalendarClient({
     const res = await fetch(`/api/bookings/season/${booking.seasonGroupId}/move`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ anchorBookingId: booking.id, ...pending, force }),
+      body: JSON.stringify({ anchorBookingId: booking.id, ...pending, force, silent: silentMove }),
     });
     setSeasonMoveBusy(false);
     if (res.status === 409) {
@@ -898,17 +953,30 @@ export function CalendarClient({
             )}
             {loading && <span className="text-xs text-slate-400">Indlæser...</span>}
           </div>
-          <button
-            onClick={() => {
-              setModalDefaultStart(undefined);
-              setModalDefaultFacilityId(undefined);
-              setSelectedBooking(null);
-              setShowModal(true);
-            }}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            + Ny booking
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleSilentMove}
+              title="Når den er slået til, kommer flytninger (træk og slip) ikke på aflysningslisten på hjemmesiden, og der sendes ingen mail til foreningen."
+              className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                silentMove
+                  ? "border-amber-400 bg-amber-100 text-amber-900"
+                  : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+              }`}
+            >
+              🔇 Stille flytning: {silentMove ? "TIL" : "fra"}
+            </button>
+            <button
+              onClick={() => {
+                setModalDefaultStart(undefined);
+                setModalDefaultFacilityId(undefined);
+                setSelectedBooking(null);
+                setShowModal(true);
+              }}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              + Ny booking
+            </button>
+          </div>
         </div>
 
         <CalendarLegend />
@@ -1016,6 +1084,8 @@ export function CalendarClient({
           onToggleImportant={() => quickToggleImportant(contextMenu.booking)}
           onCancelDay={() => quickCancelBooking(contextMenu.booking)}
           onCancelSeason={() => quickCancelSeason(contextMenu.booking)}
+          onSilentDelete={() => quickSilentDelete(contextMenu.booking)}
+          onSilentDeleteSeason={() => quickSilentDeleteSeason(contextMenu.booking)}
           onMail={() => quickMailOrganizer(contextMenu.booking)}
           onCopyCode={() => quickCopyAccessCode(contextMenu.booking)}
           onMoveTomorrow={() => quickShiftDay(contextMenu.booking, 1)}
@@ -1079,6 +1149,8 @@ function BookingContextMenu({
   onToggleImportant,
   onCancelDay,
   onCancelSeason,
+  onSilentDelete,
+  onSilentDeleteSeason,
   onMail,
   onCopyCode,
   onMoveTomorrow,
@@ -1094,6 +1166,8 @@ function BookingContextMenu({
   onToggleImportant: () => void;
   onCancelDay: () => void;
   onCancelSeason: () => void;
+  onSilentDelete: () => void;
+  onSilentDeleteSeason: () => void;
   onMail: () => void;
   onCopyCode: () => void;
   onMoveTomorrow: () => void;
@@ -1189,6 +1263,18 @@ function BookingContextMenu({
           {isSeason && (
             <button className={`${itemClass} text-red-600`} onClick={onCancelSeason}>
               Aflys hele sæsonen
+            </button>
+          )}
+          <button
+            className={`${itemClass} text-slate-500`}
+            onClick={onSilentDelete}
+            title="Fjerner bookingen uden at den kommer på aflysningslisten og uden mail"
+          >
+            🔇 {isSeason ? "Slet kun denne dag stille" : "Slet stille"}
+          </button>
+          {isSeason && (
+            <button className={`${itemClass} text-slate-500`} onClick={onSilentDeleteSeason}>
+              🔇 Slet hele sæsonen stille
             </button>
           )}
         </>
@@ -2310,6 +2396,20 @@ function BookingDetail({
     onChanged();
   }
 
+  /** "Slet stille": ingen aflysningsliste på hjemmesiden og ingen mail. */
+  async function silentDelete(wholeSeason: boolean) {
+    const what = wholeSeason ? `HELE sæsonen "${booking.title}"` : isSeason ? `denne dags forekomst af "${booking.title}"` : `"${booking.title}"`;
+    if (!window.confirm(`Slet ${what} STILLE?\n\nDen kommer IKKE på aflysningslisten på hjemmesiden, og der sendes ingen mail.`)) return;
+    setBusy(true);
+    await fetch(wholeSeason ? `/api/bookings/season/${booking.seasonGroupId}` : `/api/bookings/${booking.id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ silent: true }),
+    });
+    setBusy(false);
+    onChanged();
+  }
+
   /** Aflyser alle KOMMENDE forekomster af sæsonen på én gang (se /api/bookings/season/[seasonGroupId]) - ikke kun den her viste dag. */
   async function cancelSeason() {
     const reason = window.prompt("Årsag (vises på aflysningslisten på hjemmesiden - kan stå tom):", "");
@@ -2450,6 +2550,25 @@ function BookingDetail({
                 {seasonBusy ? "Aflyser hele sæsonen..." : "Aflys hele sæsonen (alle kommende forekomster)"}
               </button>
             )}
+            <div className="pt-2 mt-1 border-t border-slate-100 flex gap-3">
+              <button
+                onClick={() => silentDelete(false)}
+                disabled={busy}
+                title="Fjerner bookingen uden at den kommer på aflysningslisten på hjemmesiden og uden mail"
+                className="flex-1 rounded-lg border border-slate-200 text-slate-500 py-2 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
+              >
+                🔇 {isSeason ? "Slet kun denne dag stille" : "Slet stille (ingen aflysningsliste/mail)"}
+              </button>
+              {isSeason && (
+                <button
+                  onClick={() => silentDelete(true)}
+                  disabled={busy}
+                  className="flex-1 rounded-lg border border-slate-200 text-slate-500 py-2 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
+                >
+                  🔇 Slet hele sæsonen stille
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

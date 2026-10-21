@@ -17,7 +17,8 @@ import { sendNotification } from "@/lib/mailer";
  */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ seasonGroupId: string }> }) {
   const { seasonGroupId } = await params;
-  const { reason } = (await req.json().catch(() => ({}))) as { reason?: string };
+  // "silent" = "Slet hele sæsonen stille": ingen aflysningsliste, ingen mail.
+  const { reason, silent } = (await req.json().catch(() => ({}))) as { reason?: string; silent?: boolean };
   const cancelledAt = nowLocalDateTimeString();
   const rows = await db.select().from(schema.bookings).where(eq(schema.bookings.seasonGroupId, seasonGroupId));
   if (rows.length === 0) return NextResponse.json({ error: "Ikke fundet" }, { status: 404 });
@@ -28,8 +29,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ s
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 
   for (const booking of toCancel) {
-    await db.update(schema.bookings).set({ status: "aflyst", cancelledAt, cancelReason: reason?.trim() || null }).where(eq(schema.bookings.id, booking.id));
-    await logAudit("booking", booking.id, "aflyst", "Aflyst som del af hele sæsonen");
+    await db.update(schema.bookings).set(silent ? { status: "aflyst" } : { status: "aflyst", cancelledAt, cancelReason: reason?.trim() || null }).where(eq(schema.bookings.id, booking.id));
+    await logAudit("booking", booking.id, silent ? "slettet stille" : "aflyst", "Aflyst som del af hele sæsonen");
   }
 
   // Spær evt. dørkoder i WeAccess for de aflyste forekomster (i praksis
@@ -38,7 +39,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ s
 
   // Én samlet aflysningsmail for hele sæsonen (ikke én pr. forekomst).
   const first = toCancel[0];
-  if (first) {
+  if (first && !silent) {
     const recipients = await resolveNotificationRecipients(first);
     if (recipients.length > 0) {
       const [facility] = await db.select().from(schema.facilities).where(eq(schema.facilities.id, first.facilityId));

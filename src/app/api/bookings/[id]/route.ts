@@ -119,7 +119,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { reason } = (await req.json().catch(() => ({}))) as { reason?: string };
+  // "silent" = "Slet stille": bookingen fjernes fra kalenderen, men kommer IKKE
+  // på aflysningslisten på hjemmesiden (cancelledAt sættes ikke) og der sendes
+  // ingen mails. Bruges når der rykkes rundt og aflysningslisten ikke skal fyldes.
+  const { reason, silent } = (await req.json().catch(() => ({}))) as { reason?: string; silent?: boolean };
   const [existing] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, id));
   if (!existing) return NextResponse.json({ error: "Ikke fundet" }, { status: 404 });
 
@@ -127,13 +130,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     .update(schema.bookings)
     .set({
       status: "aflyst",
-      ...(existing.status !== "aflyst" ? { cancelledAt: nowLocalDateTimeString(), cancelReason: reason?.trim() || null } : {}),
+      ...(existing.status !== "aflyst" && !silent ? { cancelledAt: nowLocalDateTimeString(), cancelReason: reason?.trim() || null } : {}),
     })
     .where(eq(schema.bookings.id, id));
-  await logAudit("booking", id, "aflyst");
+  await logAudit("booking", id, silent ? "slettet stille" : "aflyst");
   await revokeAccessCodesForBooking(id);
 
-  if (existing.status !== "aflyst") {
+  if (existing.status !== "aflyst" && !silent) {
     await notifyCancellation(existing);
   }
 

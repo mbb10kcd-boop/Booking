@@ -28,7 +28,7 @@ type Booking = typeof schema.bookings.$inferSelect;
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ seasonGroupId: string }> }) {
   const { seasonGroupId } = await params;
   const body = await req.json();
-  const { anchorBookingId, force } = body;
+  const { anchorBookingId, force, silent } = body; // silent = ingen mail til foreningen
 
   if (!anchorBookingId) {
     return NextResponse.json({ error: "anchorBookingId er påkrævet" }, { status: 400 });
@@ -134,7 +134,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ se
 
   // Én samlet "sæson flyttet"-mail (ikke én pr. forekomst) - jf. samme
   // mønster som ved samlet sæsonoprettelse/-aflysning.
-  const recipients = await resolveNotificationRecipients(anchor);
+  const recipients = silent ? [] : await resolveNotificationRecipients(anchor);
   if (recipients.length > 0) {
     const message = seasonMovedMessage({
       facilityName: nextFacility?.name ?? "faciliteten",
