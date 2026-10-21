@@ -1622,18 +1622,60 @@ function fmtHM(min: number): string {
   return `${String(Math.floor(min / 60) % 24).padStart(2, "0")}.${String(min % 60).padStart(2, "0")}`;
 }
 
+/** Pixels pr. minut i ugeplanens tidsakse (51 px pr. time). */
+const WEEK_PX_PER_MIN = 0.85;
+const WEEK_DEFAULT_START_MIN = 7 * 60;
+const WEEK_DEFAULT_END_MIN = 22 * 60;
+/** Højde på den lille overskriftslinje med facilitetsnavne, når to faciliteter vises side om side. */
+const WEEK_TAG_H = 20;
+
+/** Fordeler overlappende bookinger i samme facilitet/dag i baner side om side. */
+function layoutCell(
+  items: { id: string; startMin: number; endMin: number }[]
+): Map<string, { lane: number; laneCount: number }> {
+  const sorted = [...items].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+  const out = new Map<string, { lane: number; laneCount: number }>();
+  let cluster: typeof sorted = [];
+  let clusterEnd = -1;
+  function flush() {
+    if (cluster.length === 0) return;
+    const laneEnds: number[] = [];
+    const assigned: { id: string; lane: number }[] = [];
+    for (const ev of cluster) {
+      let lane = laneEnds.findIndex((end) => end <= ev.startMin);
+      if (lane === -1) {
+        lane = laneEnds.length;
+        laneEnds.push(ev.endMin);
+      } else {
+        laneEnds[lane] = ev.endMin;
+      }
+      assigned.push({ id: ev.id, lane });
+    }
+    for (const a of assigned) out.set(a.id, { lane: a.lane, laneCount: laneEnds.length });
+    cluster = [];
+    clusterEnd = -1;
+  }
+  for (const ev of sorted) {
+    if (cluster.length > 0 && ev.startMin >= clusterEnd) flush();
+    cluster.push(ev);
+    clusterEnd = Math.max(clusterEnd, ev.endMin);
+  }
+  flush();
+  return out;
+}
+
 /**
- * Ugeplan (ny): ét overskueligt skema for ugen med en RÆKKE pr. facilitet og en
- * KOLONNE pr. dag. Hver booking er et farvet kort i sin facilitets række, sorteret
- * efter klokkeslæt - så man med ét blik kan se, hvad der sker i hver hal/lokale
- * hver dag. Facilitetens farve gennemgår hele rækken; enkeltbookinger er fyldte,
- * sæsonbookinger er lette (se `bookingVisual`).
+ * Ugeplan: ugens 7 dage som kolonner og en række pr. facilitet (eller gruppe af
+ * faciliteter side om side, fx de to 20x40 m haller). Inde i hver række er der en
+ * TIDSAKSE ligesom i Dagsplan, så bookingerne står på deres rigtige klokkeslæt, og
+ * det er tydeligt, hvornår en hal er ledig. Man ruller ned for at se de næste
+ * rækker (fx Multisalen).
  *
- * - Klik: åbner bookingen. Højreklik: hurtigmenu. Dobbeltklik i en celle: ny booking
- *   den dag i den facilitet.
- * - Træk et kort til en anden celle: flytter bookingen til den dag og/eller facilitet
- *   (uændret klokkeslæt). Træk det hen på ←/→-knapperne: flytter det en uge.
- *   Flytning af tidspunkt sker i Dagsplan (eller via "Rediger").
+ * - Klik: åbner bookingen. Højreklik: hurtigmenu. Dobbeltklik et tidspunkt: ny
+ *   booking på det tidspunkt.
+ * - Træk et kort: flytter det til et nyt tidspunkt (rundet til en halv time), en anden
+ *   dag og/eller en anden facilitet. Træk det hen på ←/→-knapperne: flytter det en
+ *   uge. Forlænge/afkorte en booking sker i Dagsplan eller via "Rediger".
  */
 function WeekMatrixView({
   weekStart,
@@ -1667,16 +1709,46 @@ function WeekMatrixView({
   const dayStrs = days.map((d) => localISODate(d));
   const todayStr = localISODate();
   const [dropKey, setDropKey] = useState<string | null>(null);
+  const grabOffsetRef = useRef(0);
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    // Holder "nu"-stregen opdateret.
+    const t = setInterval(() => setTick((x) => x + 1), 60000);
+    return () => clearInterval(t);
+  }, []);
 
   const live = bookings.filter((b) => b.status !== "aflyst" && b.status !== "afvist");
 
-  function cellBookings(facilityId: string, dayStr: string): BookingDTO[] {
+  // Tidsaksens udstrækning: som standard 07-22, men udvides hvis der er bookinger udenfor.
+  let gridStartMin = WEEK_DEFAULT_START_MIN;
+  let gridEndMin = WEEK_DEFAULT_END_MIN;
+  for (const b of live) {
+    for (const d of dayStrs) {
+      if (!bookingOnDay(b, d)) continue;
+      const seg = daySegment(b, d, WEEK_DEFAULT_START_MIN);
+      if (seg.startMin < gridStartMin) gridStartMin = Math.floor(seg.startMin / 60) * 60;
+      if (seg.endMin > gridEndMin) gridEndMin = Math.ceil(seg.endMin / 60) * 60;
+    }
+  }
+  const totalMin = gridEndMin - gridStartMin;
+  const gridH = totalMin * WEEK_PX_PER_MIN;
+  const hourMarks = Array.from({ length: totalMin / 60 + 1 }, (_, i) => gridStartMin + i * 60);
+  const nowDate = new Date();
+  const nowMin = nowDate.getHours() * 60 + nowDate.getMinutes();
+
+  function cellItems(facilityId: string, dayStr: string) {
     return live
       .filter((b) => b.facilityId === facilityId && bookingOnDay(b, dayStr))
-      .sort((a, b) => daySegment(a, dayStr).startMin - daySegment(b, dayStr).startMin);
+      .map((b) => ({ b, ...daySegment(b, dayStr, gridStartMin) }));
   }
 
-  function handleDrop(e: React.DragEvent, dayStr: string, facilityId: string) {
+  function timeFromY(e: { clientY: number; currentTarget: HTMLElement }, offsetPx = 0): number {
+    const rect = e.currentTarget.getBoundingClientRect();
+    return gridStartMin + (e.clientY - rect.top - offsetPx) / WEEK_PX_PER_MIN;
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLElement>, dayStr: string, facilityId: string) {
     e.preventDefault();
     e.stopPropagation();
     setDropKey(null);
@@ -1684,18 +1756,13 @@ function WeekMatrixView({
     const id = e.dataTransfer.getData("text/plain");
     const booking = bookings.find((b) => b.id === id);
     if (!booking || isMultiDay(booking)) return;
-    const originDay = booking.startsAt.slice(0, 10);
-    const deltaDays = Math.round(
-      (new Date(`${dayStr}T00:00:00`).getTime() - new Date(`${originDay}T00:00:00`).getTime()) / 86400000
-    );
-    if (deltaDays === 0 && facilityId === booking.facilityId) return;
-    const newStart = addDays(parseNaiveDateTime(booking.startsAt), deltaDays);
-    const newEnd = addDays(parseNaiveDateTime(booking.endsAt), deltaDays);
-    onCommit(booking, {
-      facilityId,
-      startsAt: toNaiveDateTimeString(newStart),
-      endsAt: toNaiveDateTimeString(newEnd),
-    });
+    const duration = minutesOfDay(parseNaiveDateTime(booking.endsAt)) - minutesOfDay(parseNaiveDateTime(booking.startsAt));
+    const raw = timeFromY(e, grabOffsetRef.current);
+    const snapped = clampMinutes(Math.round(raw / 30) * 30, 0, 24 * 60 - Math.max(duration, 30));
+    const startsAt = minutesToNaiveDateTimeString(dayStr, snapped);
+    const endsAt = minutesToNaiveDateTimeString(dayStr, snapped + duration);
+    if (startsAt === booking.startsAt && endsAt === booking.endsAt && facilityId === booking.facilityId) return;
+    onCommit(booking, { facilityId, startsAt, endsAt });
   }
 
   if (groups.length === 0) {
@@ -1710,22 +1777,29 @@ function WeekMatrixView({
   const hasSideBySide = groups.some((g) => g.length > 1);
   const gridCols = {
     gridTemplateColumns: hasSideBySide
-      ? "10rem repeat(7, minmax(11rem, 1fr))"
-      : "10rem repeat(7, minmax(9.5rem, 1fr))",
+      ? "10rem 3rem repeat(7, minmax(11rem, 1fr))"
+      : "10rem 3rem repeat(7, minmax(9.5rem, 1fr))",
   } as CSSProperties;
 
   function renderCell(f: FacilityDTO, dayStr: string, i: number, grouped: boolean, outerIdx: number) {
     const color = f.color ?? "#64748b";
-    const items = cellBookings(f.id, dayStr);
+    const allItems = cellItems(f.id, dayStr);
+    // Flerdagsbookinger vises som en smal lodret bjælke i venstre side, så de ikke presser dagens øvrige bookinger sammen.
+    const multiItems = allItems.filter((x) => isMultiDay(x.b));
+    const items = allItems.filter((x) => !isMultiDay(x.b));
+    const stripW = multiItems.length > 0 ? 22 : 0;
+    const layout = layoutCell(items.map((x) => ({ id: x.b.id, startMin: x.startMin, endMin: x.endMin })));
     const isToday = dayStr === todayStr;
     const key = `${f.id}|${dayStr}`;
-    // Hver anden dag har grå baggrund + kraftig lodret streg mellem dagene, så dagene er lette at skille ad.
     const base = isToday ? "bg-blue-100" : i % 2 === 1 ? "bg-slate-100" : "bg-white";
     return (
       <div
         key={key}
         data-day-col={dayStr}
-        onDoubleClick={() => onDayDoubleClick(dayStr, f.id)}
+        onDoubleClick={(e) => {
+          const snapped = clampMinutes(Math.round(timeFromY(e) / 30) * 30, gridStartMin, gridEndMin - 30);
+          onDayDoubleClick(dayStr, f.id, `${String(Math.floor(snapped / 60) % 24).padStart(2, "0")}:${String(snapped % 60).padStart(2, "0")}`);
+        }}
         onDragOver={(e) => {
           e.preventDefault();
           if (dropKey !== key) setDropKey(key);
@@ -1733,31 +1807,70 @@ function WeekMatrixView({
         onDragLeave={() => setDropKey((k) => (k === key ? null : k))}
         onDrop={(e) => handleDrop(e, dayStr, f.id)}
         title={`Dobbeltklik for at oprette en booking i ${f.name}`}
-        className={`min-w-0 cursor-pointer ${
-          grouped
-            ? `flex-1 space-y-1 p-0.5 min-h-[5.5rem] ${outerIdx > 0 ? "border-l border-dashed border-slate-400/60" : ""}`
-            : `space-y-1.5 p-1.5 min-h-[5.5rem] border-b border-slate-200 ${i < 6 ? "border-r-2 border-r-slate-400" : ""}`
-        } ${base} ${dropKey === key ? "outline outline-2 -outline-offset-2 outline-blue-500 bg-blue-100/60" : ""}`}
-        style={
-          grouped
+        className={`relative min-w-0 cursor-pointer ${grouped ? "flex-1" : "w-full"} ${
+          grouped && outerIdx > 0 ? "border-l border-dashed border-slate-400/60" : ""
+        } ${base} ${dropKey === key ? "outline outline-2 -outline-offset-2 outline-blue-500" : ""}`}
+        style={{
+          height: gridH,
+          ...(grouped
             ? { backgroundImage: `linear-gradient(${hexToRgba(color, 0.08)}, ${hexToRgba(color, 0.08)})` }
-            : undefined
-        }
+            : {}),
+        }}
       >
-        {grouped && (
+        {hourMarks.map((m) => (
           <div
-            className="truncate text-[9.5px] font-bold uppercase tracking-wide leading-none pb-0.5"
-            style={{ color: shadeHex(color, 0.65) }}
-          >
-            {f.name.replace(/s?hallen$/i, "")}
-          </div>
+            key={m}
+            className="absolute left-0 right-0 border-t border-slate-300/70 pointer-events-none"
+            style={{ top: (m - gridStartMin) * WEEK_PX_PER_MIN }}
+          />
+        ))}
+        {isToday && nowMin >= gridStartMin && nowMin <= gridEndMin && (
+          <div
+            className="absolute left-0 right-0 border-t-2 border-red-500 pointer-events-none z-20"
+            style={{ top: (nowMin - gridStartMin) * WEEK_PX_PER_MIN }}
+          />
         )}
-        {items.map((b) => {
+        {multiItems.map(({ b, startMin, endMin }) => {
           const v = bookingVisual(color, b);
-          const { startMin, endMin } = daySegment(b, dayStr);
-          const multi = isMultiDay(b);
+          const org = organizationName(b.organizationId);
+          return (
+            <div
+              key={b.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(b);
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onContextMenu={(e) => onContextMenu(e, b)}
+              title={bookingTooltip(b, f.name, org)}
+              className={`absolute left-px cursor-pointer overflow-hidden rounded-md py-1 shadow-sm hover:shadow-md ${v.className}`}
+              style={{
+                top: (startMin - gridStartMin) * WEEK_PX_PER_MIN,
+                height: Math.max(24, (endMin - startMin) * WEEK_PX_PER_MIN - 1),
+                width: stripW - 2,
+                ...v.style,
+              }}
+            >
+              <div
+                className="text-[11.5px] font-semibold leading-tight whitespace-nowrap"
+                style={{ writingMode: "vertical-rl", maxHeight: "100%", margin: "0 auto" }}
+              >
+                {b.important ? "⚑ " : ""}
+                {b.title} · {dayTimeLabel(b, dayStr)}
+              </div>
+            </div>
+          );
+        })}
+        {items.map(({ b, startMin, endMin }) => {
+          const v = bookingVisual(color, b);
+          const multi = false;
           const org = organizationName(b.organizationId);
           const season = !!b.seasonGroupId;
+          const top = (startMin - gridStartMin) * WEEK_PX_PER_MIN;
+          const height = Math.max(24, (endMin - startMin) * WEEK_PX_PER_MIN - 1);
+          const lane = layout.get(b.id) ?? { lane: 0, laneCount: 1 };
+          const timeLabel = `${fmtHM(startMin)}–${fmtHM(endMin)}`;
+          const tall = height >= 44;
           return (
             <div
               key={b.id}
@@ -1765,6 +1878,7 @@ function WeekMatrixView({
               onDragStart={(e) => {
                 e.dataTransfer.setData("text/plain", b.id);
                 e.dataTransfer.effectAllowed = "move";
+                grabOffsetRef.current = e.clientY - e.currentTarget.getBoundingClientRect().top;
                 onDragActiveChange(true);
               }}
               onDragEnd={() => {
@@ -1778,32 +1892,37 @@ function WeekMatrixView({
               onDoubleClick={(e) => e.stopPropagation()}
               onContextMenu={(e) => onContextMenu(e, b)}
               title={bookingTooltip(b, f.name, org)}
-              className={`relative rounded-lg shadow-sm hover:shadow-md transition-shadow ${grouped ? "px-1 py-1" : "px-2 py-1.5"} ${
+              className={`absolute overflow-hidden rounded-md px-1 py-0.5 shadow-sm hover:shadow-md hover:z-10 transition-shadow ${
                 multi ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
               } ${v.className}`}
-              style={v.style}
+              style={{
+                top,
+                height,
+                left: `calc(${stripW}px + (100% - ${stripW}px) * ${lane.lane / lane.laneCount} + 1px)`,
+                width: `calc((100% - ${stripW}px) * ${1 / lane.laneCount} - 2px)`,
+                ...v.style,
+              }}
             >
-              <div
-                className={`${grouped ? "text-[11.5px] whitespace-nowrap" : "text-[13px]"} font-bold leading-tight tabular-nums`}
-              >
-                {multi ? dayTimeLabel(b, dayStr) : `${fmtHM(startMin)}–${fmtHM(endMin)}`}
-              </div>
-              {(b.important || season) && !grouped && (
-                <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 text-[12px] leading-none">
-                  {b.important && <span title="VIGTIG/KAMP">⚑</span>}
-                  {season && <span title="Sæsonbooking - gentages ugentligt">↻</span>}
-                </div>
-              )}
-              <div className={`mt-0.5 ${grouped ? "text-[12px]" : "text-[12.5px]"} font-semibold leading-snug break-words`}>
-                {grouped && b.important && <span title="VIGTIG/KAMP" className="mr-0.5">⚑</span>}
-                {grouped && season && <span title="Sæsonbooking - gentages ugentligt" className="mr-0.5">↻</span>}
-                {grouped && (b.important || season) ? " " : ""}
-                {b.title}
-              </div>
-              {org && <div className="text-[10.5px] leading-tight opacity-80 truncate">{org}</div>}
-              {WAITING_STATUSES.has(b.status) && (
-                <div className="mt-0.5 inline-block rounded bg-amber-300/90 px-1 text-[10px] font-bold text-amber-900">
-                  {BOOKING_STATUS_LABELS[b.status] ?? "Afventer"}
+              {tall ? (
+                <>
+                  <div className="text-[11.5px] font-bold leading-tight whitespace-nowrap tabular-nums">{timeLabel}</div>
+                  <div className="text-[12px] font-semibold leading-tight break-words">
+                    {b.important && <span title="VIGTIG/KAMP">⚑ </span>}
+                    {season && <span title="Sæsonbooking - gentages ugentligt">↻ </span>}
+                    {b.title}
+                  </div>
+                  {org && height >= 72 && <div className="text-[10.5px] leading-tight opacity-80 truncate">{org}</div>}
+                  {WAITING_STATUSES.has(b.status) && height >= 72 && (
+                    <div className="mt-0.5 inline-block rounded bg-amber-300/90 px-1 text-[10px] font-bold text-amber-900">
+                      {BOOKING_STATUS_LABELS[b.status] ?? "Afventer"}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-[11px] font-semibold leading-tight truncate">
+                  <span className="tabular-nums font-bold">{fmtHM(startMin)}</span> {b.important ? "⚑ " : ""}
+                  {season ? "↻ " : ""}
+                  {b.title}
                 </div>
               )}
             </div>
@@ -1817,16 +1936,17 @@ function WeekMatrixView({
     <div className="rounded-2xl border border-slate-200 bg-white overflow-auto max-h-[calc(100vh-13rem)] shadow-sm">
       <div className="grid min-w-max md:min-w-full" style={gridCols}>
         {/* Dag-overskrifter (fastfrosset øverst) */}
-        <div className="sticky top-0 left-0 z-30 bg-slate-100 border-b border-r border-slate-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+        <div className="sticky top-0 left-0 z-40 bg-slate-100 border-b border-r border-slate-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
           Facilitet
         </div>
+        <div className="sticky top-0 left-[10rem] z-40 bg-slate-100 border-b border-r border-slate-200" />
         {days.map((d, i) => {
           const dayStr = dayStrs[i];
           const isToday = dayStr === todayStr;
           return (
             <div
               key={dayStr}
-              className={`sticky top-0 z-20 border-b border-slate-300 px-2 py-2 ${i < 6 ? "border-r-2 border-r-slate-400" : ""} ${
+              className={`sticky top-0 z-30 border-b border-slate-300 px-2 py-2 ${i < 6 ? "border-r-2 border-r-slate-400" : ""} ${
                 isToday ? "bg-blue-600 text-white" : i % 2 === 1 ? "bg-slate-300 text-slate-900" : "bg-slate-100 text-slate-800"
               }`}
             >
@@ -1858,6 +1978,7 @@ function WeekMatrixView({
             <div className="sticky left-0 z-10 bg-amber-50 border-b border-r border-amber-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
               Dagsnoter
             </div>
+            <div className="sticky left-[10rem] z-10 bg-amber-50 border-b border-r border-amber-200" />
             {dayStrs.map((dayStr, i) => (
               <div
                 key={`n-${dayStr}`}
@@ -1875,10 +1996,11 @@ function WeekMatrixView({
           const first = g[0];
           const color = first.color ?? "#64748b";
           const nm = shortFacilityName(first.name);
+          const tagH = grouped ? WEEK_TAG_H : 0;
           return (
             <div key={g.map((f) => f.id).join("+")} className="contents">
               {grouped ? (
-                <div className="sticky left-0 z-10 flex border-b border-r border-slate-200 bg-slate-50">
+                <div className="sticky left-0 z-10 flex border-b-2 border-b-slate-400 border-r border-slate-200 bg-slate-50">
                   <div className="flex w-2 shrink-0 flex-col">
                     {g.map((f) => (
                       <div key={f.id} className="flex-1" style={{ backgroundColor: f.color ?? "#64748b" }} />
@@ -1889,7 +2011,11 @@ function WeekMatrixView({
                       {(FACILITY_SIZE_NOTES[first.name.toLowerCase()] ?? "").replace(/ /g, "")} haller
                     </div>
                     {g.map((f) => (
-                      <div key={f.id} className="flex items-center gap-1.5 text-[13px] font-bold leading-tight" style={{ color: shadeHex(f.color ?? "#64748b", 0.6) }}>
+                      <div
+                        key={f.id}
+                        className="flex items-center gap-1.5 text-[13px] font-bold leading-tight"
+                        style={{ color: shadeHex(f.color ?? "#64748b", 0.6) }}
+                      >
                         <span className="inline-block h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: f.color ?? "#64748b" }} />
                         {f.name}
                       </div>
@@ -1898,7 +2024,7 @@ function WeekMatrixView({
                 </div>
               ) : (
                 <div
-                  className="sticky left-0 z-10 border-b border-r border-slate-200 px-3 py-3"
+                  className="sticky left-0 z-10 border-b-2 border-b-slate-400 border-r border-slate-200 px-3 py-3"
                   style={{ backgroundColor: hexToRgba(color, 0.14), borderLeft: `8px solid ${color}` }}
                 >
                   <div className="text-sm font-bold leading-tight" style={{ color: shadeHex(color, 0.6) }}>
@@ -1913,18 +2039,44 @@ function WeekMatrixView({
                   )}
                 </div>
               )}
-              {dayStrs.map((dayStr, i) =>
-                grouped ? (
+              {/* Klokkeslæt */}
+              <div
+                className="sticky left-[10rem] z-10 relative border-b-2 border-b-slate-400 border-r border-slate-200 bg-white"
+                style={{ height: gridH + tagH }}
+              >
+                {hourMarks.map((m) => (
                   <div
-                    key={`${g[0].id}|${dayStr}`}
-                    className={`flex border-b border-slate-200 ${i < 6 ? "border-r-2 border-r-slate-400" : ""}`}
+                    key={m}
+                    className="absolute right-1 -translate-y-1/2 text-[10.5px] text-slate-400 tabular-nums"
+                    style={{ top: tagH + (m - gridStartMin) * WEEK_PX_PER_MIN }}
                   >
-                    {g.map((f, idx) => renderCell(f, dayStr, i, true, idx))}
+                    {String(Math.floor(m / 60) % 24).padStart(2, "0")}
                   </div>
-                ) : (
-                  renderCell(first, dayStr, i, false, 0)
-                )
-              )}
+                ))}
+              </div>
+              {dayStrs.map((dayStr, i) => (
+                <div
+                  key={`${g[0].id}|${dayStr}`}
+                  className={`flex flex-col border-b-2 border-b-slate-400 ${i < 6 ? "border-r-2 border-r-slate-400" : ""}`}
+                >
+                  {grouped && (
+                    <div className="flex bg-white/60" style={{ height: tagH }}>
+                      {g.map((f, idx) => (
+                        <div
+                          key={f.id}
+                          className={`flex-1 min-w-0 truncate px-1 text-[9.5px] font-bold uppercase tracking-wide leading-[20px] ${
+                            idx > 0 ? "border-l border-dashed border-slate-400/60" : ""
+                          }`}
+                          style={{ color: shadeHex(f.color ?? "#64748b", 0.65), backgroundColor: hexToRgba(f.color ?? "#64748b", 0.12) }}
+                        >
+                          {f.name.replace(/s?hallen$/i, "")}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex">{g.map((f, idx) => renderCell(f, dayStr, i, grouped, idx))}</div>
+                </div>
+              ))}
             </div>
           );
         })}
