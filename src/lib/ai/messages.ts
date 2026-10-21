@@ -234,6 +234,47 @@ Venlig hilsen
 Grenaa Idrætscenter`;
 }
 
+/** "tirsdag 3. november" - kort dansk dato til opremsning i mails (uden foranstillet nul og uden årstal). */
+function listDate(date: string): string {
+  const d = new Date(`${date}T00:00:00`);
+  return d.toLocaleDateString("da-DK", { weekday: "long", day: "numeric", month: "long" });
+}
+
+/**
+ * Mail når en sæsonbooking er oprettet "først til mølle": den ønskede tid er
+ * booket på alle ledige datoer, mens de datoer hvor hallen allerede var
+ * optaget af andre er sprunget over - og opremses her, så modtageren er klar over det.
+ */
+export function seasonPartialMessage(opts: {
+  facilityName: string;
+  weekday: number;
+  startTime: string;
+  endTime: string;
+  until: string;
+  bookedCount: number;
+  skippedDates: string[];
+  recipientName?: string;
+}): string {
+  const n = opts.skippedDates.length;
+  const lines = opts.skippedDates.map((d) => `- ${listDate(d)}`).join("\n");
+  return `Hej${opts.recipientName ? ` ${opts.recipientName}` : ""}
+
+Tak for jeres ønske om en fast sæsonbooking. Jeres tid er nu booket:
+
+${opts.facilityName}
+Hver ${weekdayName(opts.weekday).toLowerCase()} kl. ${opts.startTime.replace(":", ".")}-${opts.endTime.replace(":", ".")}
+Frem til og med ${formatDaDate(`${opts.until}T00:00:00`)} (${opts.bookedCount} ${opts.bookedCount === 1 ? "gang" : "gange"})
+
+Vær opmærksom på, at hallen allerede var optaget af andre bookinger ${n === 1 ? "på følgende dato" : `på følgende ${n} datoer`}, så jeres tid er IKKE booket ${n === 1 ? "den dag" : "disse dage"}:
+
+${lines}
+
+Har I brug for en anden tid ${n === 1 ? "den dag" : "de dage"}, er I meget velkomne til at kontakte os, så ser vi på, om vi kan finde en løsning (fx en anden hal eller et andet tidspunkt).
+
+Venlig hilsen
+Grenaa Idrætscenter`;
+}
+
 /**
  * Aflysningsbesked når en HEL sæson stoppes (fra og med en given dato) i
  * stedet for kun én enkelt forekomst - se `cancellationMessage` for den.

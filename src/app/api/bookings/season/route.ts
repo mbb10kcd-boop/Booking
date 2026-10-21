@@ -5,7 +5,7 @@ import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
 import { conflictsAmong, loadActiveBookingsBetween, relatedFacilityIds, warningsAmong } from "@/lib/conflicts";
 import { getAllFacilities } from "@/lib/facilities";
-import { seasonConfirmationMessage } from "@/lib/ai/messages";
+import { seasonConfirmationMessage, seasonPartialMessage } from "@/lib/ai/messages";
 import { weeklyOccurrenceDates } from "@/lib/date";
 import { sendNotification } from "@/lib/mailer";
 
@@ -23,7 +23,8 @@ import { sendNotification } from "@/lib/mailer";
  */
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { facilityId, startDate, startTime, endTime, until, force } = body;
+  // skipConflicts = "først til mølle": opret kun de ledige datoer, spring optagede over og lav et mailudkast om de sprungne datoer.
+  const { facilityId, startDate, startTime, endTime, until, force, skipConflicts } = body;
 
   if (!facilityId || !startDate || !startTime || !endTime || !until) {
     return NextResponse.json(
@@ -58,7 +59,14 @@ export async function POST(req: NextRequest) {
     const conflicts = conflictsAmong(seasonRows, facilities, facilityId, `${date}T${startTime}:00`, `${date}T${endTime}:00`);
     if (conflicts.length > 0) conflictsByDate[date] = conflicts;
   }
-  if (Object.keys(conflictsByDate).length > 0 && !force) {
+  const skippedDates = skipConflicts ? Object.keys(conflictsByDate).sort() : [];
+  if (skipConflicts && skippedDates.length === dates.length) {
+    return NextResponse.json(
+      { error: "alle_optaget", message: "Hallen er optaget på alle sæsonens datoer - der er ingen ledige datoer at booke.", conflictsByDate },
+      { status: 409 }
+    );
+  }
+  if (Object.keys(conflictsByDate).length > 0 && !force && !skipConflicts) {
     return NextResponse.json(
       { error: "konflikt", conflictsByDate, occurrenceCount: dates.length },
       { status: 409 }
@@ -76,7 +84,8 @@ export async function POST(req: NextRequest) {
   const recurrenceRule = { freq: "weekly" as const, weekday, until };
   const createdBookingIds: string[] = [];
 
-  const rowsToInsert = dates.map((date) => {
+  const bookDates = skipConflicts ? dates.filter((d) => !conflictsByDate[d]) : dates;
+  const rowsToInsert = bookDates.map((date) => {
     const id = newId("book");
     createdBookingIds.push(id);
     return {
@@ -106,21 +115,40 @@ export async function POST(req: NextRequest) {
     "booking",
     seasonGroupId,
     "saeson_oprettet",
-    `${body.title || fallbackTitle}: ${dates.length} forekomster oprettet (${body.source ?? "manuel"})`,
+    `${body.title || fallbackTitle}: ${bookDates.length} forekomster oprettet (${body.source ?? "manuel"})` +
+      (skippedDates.length > 0 ? `, ${skippedDates.length} optagede datoer sprunget over (${skippedDates.join(", ")})` : ""),
     body.createdBy ?? undefined
   );
 
   // Én samlet bekræftelsesmail for hele sæsonen (ikke én pr. uge) hvis vi har
   // en kontaktmail - jf. samme mønster som ved enkeltbookinger i /api/bookings.
-  if (body.contactEmail) {
-    const [facility] = await db.select().from(schema.facilities).where(eq(schema.facilities.id, facilityId));
+  // Hvis datoer er sprunget over, sendes den almindelige bekræftelse IKKE (den ville
+  // love alle datoer) - i stedet returneres et mailudkast, som den ansatte kan rette og sende.
+  const [facility] = await db.select().from(schema.facilities).where(eq(schema.facilities.id, facilityId));
+  let mailDraft: { to: string; subject: string; body: string } | null = null;
+  if (skippedDates.length > 0) {
+    mailDraft = {
+      to: body.contactEmail ?? "",
+      subject: "Jeres sæsonbooking - bemærk datoer hvor hallen var optaget",
+      body: seasonPartialMessage({
+        facilityName: facility?.name ?? "faciliteten",
+        weekday,
+        startTime,
+        endTime,
+        until,
+        bookedCount: bookDates.length,
+        skippedDates,
+        recipientName: body.contactName ?? undefined,
+      }),
+    };
+  } else if (body.contactEmail) {
     const message = seasonConfirmationMessage({
       facilityName: facility?.name ?? "faciliteten",
       weekday,
       startTime,
       endTime,
       until,
-      occurrenceCount: dates.length,
+      occurrenceCount: bookDates.length,
       recipientName: body.contactName ?? undefined,
     });
     await sendNotification({
@@ -136,7 +164,7 @@ export async function POST(req: NextRequest) {
   // Løst koblede faciliteter (fx klatrevæg/opvisningshal) blokerer ikke,
   // men flages pr. dato som en bemærkning til den der booker.
   const warningsByDate: Record<string, BookingRow[]> = {};
-  for (const date of dates) {
+  for (const date of bookDates) {
     const warnings = warningsAmong(seasonRows, facilities, facilityId, `${date}T${startTime}:00`, `${date}T${endTime}:00`);
     if (warnings.length > 0) warningsByDate[date] = warnings;
   }
@@ -146,6 +174,8 @@ export async function POST(req: NextRequest) {
       seasonGroupId,
       createdBookingIds,
       overriddenConflicts: force ? conflictsByDate : {},
+      skippedDates,
+      mailDraft,
       warningsByDate,
     },
     { status: 201 }

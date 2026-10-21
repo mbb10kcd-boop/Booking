@@ -47,6 +47,9 @@ interface Slot {
   warnings?: BookingDTO[];
   /** Samme som `warnings`, men for en sæsonbooking - grupperet pr. dato. */
   seasonWarnings?: { date: string; warnings: BookingDTO[] }[];
+  /** "Først til mølle": datoer der blev sprunget over fordi hallen var optaget, og et udkast til mail om dem. */
+  skippedDates?: string[];
+  partialMail?: { to: string; subject: string; body: string; status?: "sending" | "sent" | "simulated" | "failed"; error?: string };
   error?: string;
 }
 
@@ -420,7 +423,7 @@ export function BookingFormModal({
    * grupperet under samme seasonGroupId (se /api/bookings/season). Ugedagen
    * behøver ikke angives særskilt - den udledes af starttidspunktets dato.
    */
-  async function createSeasonSlot(slot: Slot, force: boolean): Promise<{ ok: boolean; hasWarnings: boolean }> {
+  async function createSeasonSlot(slot: Slot, force: boolean, skipConflicts = false): Promise<{ ok: boolean; hasWarnings: boolean }> {
     updateSlot(slot.key, {
       saving: true,
       error: undefined,
@@ -445,10 +448,15 @@ export function BookingFormModal({
         important,
         status: DIRECT_BOOKING_STATUS,
         force,
+        skipConflicts,
       }),
     });
     if (res.status === 409) {
       const data = await res.json();
+      if (data.error === "alle_optaget") {
+        updateSlot(slot.key, { saving: false, error: data.message });
+        return { ok: false, hasWarnings: false };
+      }
       const seasonConflicts = Object.entries(data.conflictsByDate as Record<string, BookingDTO[]>)
         .map(([date, conflicts]) => ({ date, conflicts }))
         .sort((a, b) => a.date.localeCompare(b.date));
@@ -467,6 +475,7 @@ export function BookingFormModal({
             .map(([date, warnings]) => ({ date, warnings }))
             .sort((a, b) => a.date.localeCompare(b.date))
         : undefined;
+    const skippedDates = (data.skippedDates as string[] | undefined) ?? [];
     updateSlot(slot.key, {
       saving: false,
       createdId: data.seasonGroupId,
@@ -474,11 +483,36 @@ export function BookingFormModal({
       seasonConflicts: undefined,
       error: undefined,
       seasonWarnings,
+      skippedDates: skippedDates.length > 0 ? skippedDates : undefined,
+      partialMail: data.mailDraft ? { ...data.mailDraft, to: data.mailDraft.to || contactEmail || "" } : undefined,
     });
-    return { ok: true, hasWarnings: !!seasonWarnings };
+    // Mailudkastet skal ses af brugeren, så formularen holdes åben (som ved bemærkninger).
+    return { ok: true, hasWarnings: !!seasonWarnings || !!data.mailDraft };
   }
 
-  async function createSlot(slot: Slot, force: boolean): Promise<{ ok: boolean; hasWarnings: boolean }> {
+  /** Sender det (evt. rettede) mailudkast om de sprungne datoer via systemet. */
+  async function sendPartialMail(slot: Slot) {
+    const m = slot.partialMail;
+    if (!m) return;
+    updateSlot(slot.key, { partialMail: { ...m, status: "sending", error: undefined } });
+    try {
+      const res = await fetch("/api/mail/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: m.to, subject: m.subject, text: m.body, bookingId: slot.createdId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        updateSlot(slot.key, { partialMail: { ...m, status: "failed", error: data.error ?? "Mailen kunne ikke sendes." } });
+        return;
+      }
+      updateSlot(slot.key, { partialMail: { ...m, status: data.status === "simuleret" ? "simulated" : "sent" } });
+    } catch {
+      updateSlot(slot.key, { partialMail: { ...m, status: "failed", error: "Mailen kunne ikke sendes." } });
+    }
+  }
+
+  async function createSlot(slot: Slot, force: boolean, skipConflicts = false): Promise<{ ok: boolean; hasWarnings: boolean }> {
     if (!slot.facilityId || !slot.start || !slot.end) {
       updateSlot(slot.key, { error: "Udfyld facilitet, starttid og sluttid." });
       return { ok: false, hasWarnings: false };
@@ -492,7 +526,7 @@ export function BookingFormModal({
         updateSlot(slot.key, { error: "Slutdatoen for gentagelsen skal ligge efter startdatoen." });
         return { ok: false, hasWarnings: false };
       }
-      return createSeasonSlot(slot, force);
+      return createSeasonSlot(slot, force, skipConflicts);
     }
     return createSingleSlot(slot, force);
   }
@@ -913,6 +947,78 @@ export function BookingFormModal({
                             {slot.saving ? "Gemmer..." : "Aflys de oprindelige bookinger"}
                           </button>
                         </div>
+                        <button
+                          onClick={async () => {
+                            const result = await createSlot(slot, false, true);
+                            if (result.hasWarnings) setCreatedWithWarnings(true);
+                            else if (result.ok) onSaved();
+                          }}
+                          disabled={slot.saving}
+                          className="w-full rounded-lg bg-green-700 text-white text-xs font-medium py-1.5 hover:bg-green-800 disabled:opacity-50"
+                          title="Beholder de eksisterende bookinger, opretter sæsonen på de ledige datoer og laver et mailudkast om de datoer, der blev sprunget over"
+                        >
+                          {slot.saving ? "Gemmer..." : "Behold de eksisterende - book kun de ledige datoer + lav mail"}
+                        </button>
+                      </div>
+                    )}
+                    {slot.skippedDates && slot.skippedDates.length > 0 && slot.partialMail && (
+                      <div className="rounded-lg border border-green-200 bg-green-50 p-2.5 space-y-2">
+                        <div className="font-medium text-green-900 text-xs">
+                          Sæsonen er oprettet på de ledige datoer. {slot.skippedDates.length} optagede datoer blev sprunget over.
+                          Her er et udkast til mail til den, der ønskede tiden - ret den gerne, før den sendes:
+                        </div>
+                        <input
+                          type="email"
+                          value={slot.partialMail.to}
+                          onChange={(e) => updateSlot(slot.key, { partialMail: { ...slot.partialMail!, to: e.target.value } })}
+                          placeholder="Modtagerens mailadresse"
+                          className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs bg-white"
+                        />
+                        <input
+                          type="text"
+                          value={slot.partialMail.subject}
+                          onChange={(e) => updateSlot(slot.key, { partialMail: { ...slot.partialMail!, subject: e.target.value } })}
+                          className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs bg-white"
+                        />
+                        <textarea
+                          value={slot.partialMail.body}
+                          onChange={(e) => updateSlot(slot.key, { partialMail: { ...slot.partialMail!, body: e.target.value } })}
+                          rows={12}
+                          className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs bg-white font-mono"
+                        />
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            onClick={() => sendPartialMail(slot)}
+                            disabled={!slot.partialMail.to.trim() || slot.partialMail.status === "sending" || slot.partialMail.status === "sent"}
+                            className="rounded-lg bg-green-700 text-white text-xs font-medium px-3 py-1.5 hover:bg-green-800 disabled:opacity-50"
+                          >
+                            {slot.partialMail.status === "sending" ? "Sender..." : slot.partialMail.status === "sent" ? "Mail sendt" : "Send mail nu"}
+                          </button>
+                          <a
+                            href={`mailto:${encodeURIComponent(slot.partialMail.to)}?subject=${encodeURIComponent(slot.partialMail.subject)}&body=${encodeURIComponent(slot.partialMail.body)}`}
+                            className="rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-medium px-3 py-1.5 hover:bg-slate-50"
+                          >
+                            Åbn i mailprogram
+                          </a>
+                          <button
+                            onClick={() => {
+                              try {
+                                navigator.clipboard.writeText(slot.partialMail!.body);
+                              } catch {
+                                // ignorer - teksten kan stadig markeres og kopieres manuelt
+                              }
+                            }}
+                            className="rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-medium px-3 py-1.5 hover:bg-slate-50"
+                          >
+                            Kopiér tekst
+                          </button>
+                        </div>
+                        {slot.partialMail.status === "simulated" && (
+                          <div className="text-xs text-amber-700">
+                            Mailafsendelse er ikke sat op endnu - mailen er kun gemt i notifikationsloggen. Brug &quot;Åbn i mailprogram&quot;.
+                          </div>
+                        )}
+                        {slot.partialMail.status === "failed" && <div className="text-xs text-red-600">{slot.partialMail.error}</div>}
                       </div>
                     )}
                     {slot.seasonWarnings && slot.seasonWarnings.length > 0 && (
