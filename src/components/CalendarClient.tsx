@@ -1719,7 +1719,8 @@ function WeekMatrixView({
     const items = cellBookings(f.id, dayStr);
     const isToday = dayStr === todayStr;
     const key = `${f.id}|${dayStr}`;
-    const base = isToday ? "bg-blue-50/70" : i >= 5 ? "bg-slate-50" : "bg-white";
+    // Hver anden dag har grå baggrund + kraftig lodret streg mellem dagene, så dagene er lette at skille ad.
+    const base = isToday ? "bg-blue-100" : i % 2 === 1 ? "bg-slate-100" : "bg-white";
     return (
       <div
         key={key}
@@ -1734,12 +1735,12 @@ function WeekMatrixView({
         title={`Dobbeltklik for at oprette en booking i ${f.name}`}
         className={`min-w-0 cursor-pointer ${
           grouped
-            ? `flex-1 space-y-1 p-0.5 min-h-[5.5rem] ${outerIdx > 0 ? "border-l-2" : ""}`
-            : `space-y-1.5 p-1.5 min-h-[5.5rem] border-b border-slate-100 ${i < 6 ? "border-r border-slate-100" : ""}`
+            ? `flex-1 space-y-1 p-0.5 min-h-[5.5rem] ${outerIdx > 0 ? "border-l border-dashed border-slate-400/60" : ""}`
+            : `space-y-1.5 p-1.5 min-h-[5.5rem] border-b border-slate-200 ${i < 6 ? "border-r-2 border-r-slate-400" : ""}`
         } ${base} ${dropKey === key ? "outline outline-2 -outline-offset-2 outline-blue-500 bg-blue-100/60" : ""}`}
         style={
           grouped
-            ? { borderLeftColor: hexToRgba(color, 0.5), backgroundImage: `linear-gradient(${hexToRgba(color, 0.07)}, ${hexToRgba(color, 0.07)})` }
+            ? { backgroundImage: `linear-gradient(${hexToRgba(color, 0.08)}, ${hexToRgba(color, 0.08)})` }
             : undefined
         }
       >
@@ -1822,18 +1823,17 @@ function WeekMatrixView({
         {days.map((d, i) => {
           const dayStr = dayStrs[i];
           const isToday = dayStr === todayStr;
-          const weekend = i >= 5;
           return (
             <div
               key={dayStr}
-              className={`sticky top-0 z-20 border-b border-slate-200 px-2 py-2 ${
-                isToday ? "bg-blue-600 text-white" : weekend ? "bg-slate-200 text-slate-700" : "bg-slate-100 text-slate-800"
+              className={`sticky top-0 z-20 border-b border-slate-300 px-2 py-2 ${i < 6 ? "border-r-2 border-r-slate-400" : ""} ${
+                isToday ? "bg-blue-600 text-white" : i % 2 === 1 ? "bg-slate-300 text-slate-900" : "bg-slate-100 text-slate-800"
               }`}
             >
               <div className="flex items-center justify-between gap-1">
                 <div className="leading-tight">
                   <div className="text-sm font-bold">{WEEKDAY_FULL[i]}</div>
-                  <div className={`text-xs ${isToday ? "text-blue-100" : "text-slate-500"}`}>
+                  <div className={`text-xs ${isToday ? "text-blue-100" : "text-slate-600"}`}>
                     {d.getDate()}. {d.toLocaleDateString("da-DK", { month: "short" })}
                     {isToday ? " · i dag" : ""}
                   </div>
@@ -1858,8 +1858,11 @@ function WeekMatrixView({
             <div className="sticky left-0 z-10 bg-amber-50 border-b border-r border-amber-200 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-amber-700">
               Dagsnoter
             </div>
-            {dayStrs.map((dayStr) => (
-              <div key={`n-${dayStr}`} className="bg-amber-50/60 border-b border-amber-100 pb-1.5">
+            {dayStrs.map((dayStr, i) => (
+              <div
+                key={`n-${dayStr}`}
+                className={`bg-amber-50/60 border-b border-amber-100 pb-1.5 ${i < 6 ? "border-r-2 border-r-slate-400" : ""}`}
+              >
                 <DayNoteBadges notes={notesForDay(dayStr)} onEditNote={onEditNote} />
               </div>
             ))}
@@ -1914,7 +1917,7 @@ function WeekMatrixView({
                 grouped ? (
                   <div
                     key={`${g[0].id}|${dayStr}`}
-                    className={`flex border-b border-slate-100 ${i < 6 ? "border-r border-slate-100" : ""}`}
+                    className={`flex border-b border-slate-200 ${i < 6 ? "border-r-2 border-r-slate-400" : ""}`}
                   >
                     {g.map((f, idx) => renderCell(f, dayStr, i, true, idx))}
                   </div>
