@@ -24,6 +24,7 @@ export const dynamic = "force-dynamic";
  *   CTS_LEAD_MINUTES  minutter lyset tændes FØR en booking (standard 15)  - ?lead=
  *   CTS_LAG_MINUTES   minutter lyset er tændt EFTER en booking (standard 15) - ?lag=
  *   CTS_EXCLUDED_STATUSES  kommasepareret liste af statusser der ikke tænder lyset
+ *   CTS_ZONES         kommasepareret liste af zone-id'er der vises (standard: alle), fx "traeningshallen"
  */
 
 function sha(s: string) {
@@ -86,6 +87,10 @@ export async function GET(req: NextRequest) {
     lagMinutes: lag,
     excludedStatuses: excluded,
   });
+
+  // CTS_ZONES (Render) begrænser hvilke zoner API'et overhovedet viser, fx "traeningshallen".
+  const allowedZones = (process.env.CTS_ZONES ?? "").split(",").map((z) => z.trim().toLowerCase()).filter(Boolean);
+  if (allowedZones.length > 0) zones = zones.filter((z) => allowedZones.includes(z.id));
 
   const zoneParam = sp.get("zone");
   if (zoneParam) {
