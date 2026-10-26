@@ -20,6 +20,8 @@ function isPublicApiPath(pathname: string, method: string): boolean {
   if (pathname === "/api/facilities" && method === "GET") return true;
   // Konflikttjek bruges af portalen, inden en booking oprettes.
   if (pathname === "/api/bookings/check-conflict" && method === "POST") return true;
+  // Lysstyringen (CTS) henter status med en API-nøgle - ruten godkender selv (CTS_API_KEY), ikke med login-cookie.
+  if (pathname === "/api/cts/status" && method === "GET") return true;
   // De fysiske infoskærme henter deres eget indhold via /api/screens/<id>.
   if (/^\/api\/screens\/[^/]+$/.test(pathname) && method === "GET") return true;
   return false;
