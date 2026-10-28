@@ -14,6 +14,7 @@
  * bookingerne i databasen.
  */
 import type { Booking } from "@/lib/conflicts";
+import { normalizeLightLevel } from "@/lib/lightLevels";
 
 export interface CtsFacility {
   id: string;
@@ -25,6 +26,8 @@ export interface CtsFacility {
 export interface CtsWindow {
   from: string; // naiv lokal "YYYY-MM-DDTHH:mm:ss" (inkl. tid før)
   until: string; // inkl. tid efter
+  /** Højeste lysniveau (lux) blandt bookingerne i vinduet. */
+  lux: number;
 }
 
 export interface CtsZoneStatus {
@@ -32,6 +35,8 @@ export interface CtsZoneStatus {
   name: string;
   light: "ON" | "OFF";
   on: boolean;
+  /** Lysniveau lige nu i lux: 0 (slukket), 400, 700 eller 1000. Ved overlap vinder det højeste. */
+  lux: number;
   /** Hvis ON: vinduet vi er i lige nu. */
   current: CtsWindow | null;
   /** Næste vindue der starter senere (hvis ON, efter det nuværende). */
@@ -75,7 +80,7 @@ function rootOf(f: CtsFacility, byId: Map<string, CtsFacility>): CtsFacility {
 
 export function computeCtsStatus(opts: {
   facilities: CtsFacility[];
-  bookings: Pick<Booking, "facilityId" | "startsAt" | "endsAt" | "status">[];
+  bookings: Pick<Booking, "facilityId" | "startsAt" | "endsAt" | "status" | "lightLevel">[];
   nowNaive: string;
   leadMinutes: number;
   lagMinutes: number;
@@ -86,7 +91,7 @@ export function computeCtsStatus(opts: {
   const now = toMin(opts.nowNaive);
   const zones = opts.facilities.filter((f) => !f.parentId && !f.archived);
 
-  const zoneWindows = new Map<string, [number, number][]>();
+  const zoneWindows = new Map<string, [number, number, number][]>(); // [fra, til, lux]
   const zoneIncludes = new Map<string, Set<string>>();
   for (const z of zones) {
     zoneWindows.set(z.id, []);
@@ -102,26 +107,33 @@ export function computeCtsStatus(opts: {
     const s = toMin(b.startsAt);
     const e = toMin(b.endsAt);
     if (Number.isNaN(s) || Number.isNaN(e) || e <= s) continue;
-    list.push([s - opts.leadMinutes, e + opts.lagMinutes]);
+    list.push([s - opts.leadMinutes, e + opts.lagMinutes, normalizeLightLevel(b.lightLevel)]);
     zoneIncludes.get(root.id)!.add(f.name);
   }
 
   return zones.map((z) => {
     const sorted = (zoneWindows.get(z.id) ?? []).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-    const merged: [number, number][] = [];
+    // Sammenflettede vinduer; lux = højeste niveau blandt bookingerne i vinduet.
+    const merged: [number, number, number][] = [];
     for (const w of sorted) {
       const last = merged[merged.length - 1];
-      if (last && w[0] <= last[1]) last[1] = Math.max(last[1], w[1]);
-      else merged.push([w[0], w[1]]);
+      if (last && w[0] <= last[1]) {
+        last[1] = Math.max(last[1], w[1]);
+        last[2] = Math.max(last[2], w[2]);
+      } else merged.push([w[0], w[1], w[2]]);
     }
     const cur = merged.find(([s, e]) => s <= now && now < e) ?? null;
     const next = merged.find(([s]) => s > now) ?? null;
-    const win = (w: [number, number] | null): CtsWindow | null => (w ? { from: fromMin(w[0]), until: fromMin(w[1]) } : null);
+    // Lysniveau lige nu: højeste niveau blandt de bookinger (inkl. tid før/efter), der dækker nu-tidspunktet.
+    const luxNow = sorted.filter(([s, e]) => s <= now && now < e).reduce((m, w) => Math.max(m, w[2]), 0);
+    const win = (w: [number, number, number] | null): CtsWindow | null =>
+      w ? { from: fromMin(w[0]), until: fromMin(w[1]), lux: w[2] } : null;
     return {
       id: zoneIdFromName(z.name),
       name: z.name,
       light: cur ? "ON" : "OFF",
       on: !!cur,
+      lux: cur ? luxNow : 0,
       current: win(cur),
       next: win(next),
       includes: Array.from(zoneIncludes.get(z.id) ?? []),

@@ -8,6 +8,7 @@ import { getAllFacilities } from "@/lib/facilities";
 import { seasonConfirmationMessage, seasonPartialMessage } from "@/lib/ai/messages";
 import { weeklyOccurrenceDates } from "@/lib/date";
 import { sendNotification } from "@/lib/mailer";
+import { normalizeLightLevel } from "@/lib/lightLevels";
 
 /**
  * Opretter en sæsonbooking: én selvstændig booking-række pr. ugentlig
@@ -102,6 +103,7 @@ export async function POST(req: NextRequest) {
       seasonGroupId,
       recurrenceRule,
       important: body.important ?? false,
+      lightLevel: normalizeLightLevel(body.lightLevel),
       notes: body.notes ?? null,
       source: body.source ?? "manuel",
       createdBy: body.createdBy ?? "Medarbejder",

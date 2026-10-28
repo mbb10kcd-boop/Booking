@@ -5,6 +5,7 @@ import type { BookingDTO, FacilityDTO, OrganizationDTO } from "@/lib/clientTypes
 import { formatDaDate, formatDaTime } from "@/lib/ai/messages";
 import { roundDateTimeLocalString, stepDateTimeLocalString } from "@/lib/date";
 import { WheelStepInput } from "./WheelStepInput";
+import { DEFAULT_LIGHT_LEVEL, LIGHT_LEVELS, facilityHasLightControl, normalizeLightLevel } from "@/lib/lightLevels";
 
 const DEFAULT_FACILITY_COLOR = "#64748b";
 
@@ -85,6 +86,10 @@ export function BookingFormModal({
   // for almindelig træning - se IMPORTANT_ACCENT_CLASS i statusLabels.ts for
   // hvordan det vises i kalenderen, og schema.ts for baggrunden.
   const [important, setImportant] = useState(booking?.important ?? false);
+  // Lysniveau i hallen (400/700/1000 lux) - sendes til CTS. Standard 400.
+  const [lightLevel, setLightLevel] = useState<number>(normalizeLightLevel(booking?.lightLevel ?? DEFAULT_LIGHT_LEVEL));
+  // Ved redigering af en sæsonbooking: gælder et nyt lysniveau kun denne dag, eller hele resten af sæsonen?
+  const [lightScope, setLightScope] = useState<"this" | "rest">("this");
   const [error, setError] = useState<string | null>(null);
 
   function selectOrganization(newId: string) {
@@ -135,6 +140,20 @@ export function BookingFormModal({
     return editFacilityId !== booking.facilityId || startsAt !== booking.startsAt || endsAt !== booking.endsAt;
   }
 
+  function lightLevelChanged(): boolean {
+    return !!booking && lightLevel !== normalizeLightLevel(booking.lightLevel ?? DEFAULT_LIGHT_LEVEL);
+  }
+
+  /** Er "hele resten af sæsonen" valgt for et ændret lysniveau, sættes niveauet nu på denne og alle senere forekomster. */
+  async function applySeasonLightIfNeeded() {
+    if (!booking?.seasonGroupId || !lightLevelChanged() || lightScope !== "rest") return;
+    await fetch(`/api/bookings/season/${booking.seasonGroupId}/light`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ anchorBookingId: booking.id, lightLevel }),
+    });
+  }
+
   /** Klik på "Gem ændringer": spørger først om sæson-omfang, hvis relevant. */
   function handleSaveEditClick() {
     if (booking?.seasonGroupId && editHasTimeOrFacilityChange()) {
@@ -170,6 +189,7 @@ export function BookingFormModal({
       return;
     }
     setSeasonMoveConflictsByDate(null);
+    await applySeasonLightIfNeeded();
     onSaved();
   }
 
@@ -213,6 +233,7 @@ export function BookingFormModal({
         endsAt: editEnd.length === 16 ? `${editEnd}:00` : editEnd,
         notes: notes || null,
         important,
+        ...(lightLevelChanged() && !(booking!.seasonGroupId && lightScope === "rest") ? { lightLevel } : {}),
         force,
         // Status røres slet ikke ved redigering - PATCH-endpointet bevarer
         // den eksisterende status uændret, når feltet udelades.
@@ -228,6 +249,7 @@ export function BookingFormModal({
       setError("Der opstod en fejl. Prøv igen.");
       return;
     }
+    await applySeasonLightIfNeeded();
     const data = await res.json();
     if (data.warnings && data.warnings.length > 0) {
       // Ændringen ER gemt allerede - dette er kun en bemærkning, ikke en
@@ -391,6 +413,7 @@ export function BookingFormModal({
         endsAt: slot.end.length === 16 ? `${slot.end}:00` : slot.end,
         notes: notes || null,
         important,
+        lightLevel,
         status: DIRECT_BOOKING_STATUS,
         force,
       }),
@@ -446,6 +469,7 @@ export function BookingFormModal({
         until: repeatUntil,
         notes: notes || null,
         important,
+        lightLevel,
         status: DIRECT_BOOKING_STATUS,
         force,
         skipConflicts,
@@ -1091,6 +1115,43 @@ export function BookingFormModal({
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {(isEditing ? facilityHasLightControl(editFacilityId, facilities) : slots.some((s) => facilityHasLightControl(s.facilityId, facilities))) && (
+            <div className={`rounded-xl border p-3 ${lightLevel !== DEFAULT_LIGHT_LEVEL ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50/50"}`}>
+              <div className="text-sm font-medium text-slate-700 mb-2">💡 Lys i hallen</div>
+              <div className="flex gap-2">
+                {LIGHT_LEVELS.map((lux) => (
+                  <button
+                    key={lux}
+                    type="button"
+                    onClick={() => setLightLevel(lux)}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
+                      lightLevel === lux
+                        ? "border-amber-500 bg-amber-400 text-amber-950"
+                        : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {lux} lux{lux === DEFAULT_LIGHT_LEVEL ? " (standard)" : ""}
+                  </button>
+                ))}
+              </div>
+              {isEditing && booking?.seasonGroupId && lightLevelChanged() && (
+                <div className="mt-2 space-y-1 text-sm text-slate-700">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" checked={lightScope === "this"} onChange={() => setLightScope("this")} />
+                    Kun denne dag
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" checked={lightScope === "rest"} onChange={() => setLightScope("rest")} />
+                    Hele resten af sæsonen (fra denne dag)
+                  </label>
+                </div>
+              )}
+              {!isEditing && repeatWeekly && (
+                <div className="text-xs text-slate-500 mt-2">Gælder alle forekomster i sæsonen.</div>
+              )}
             </div>
           )}
 

@@ -14,6 +14,8 @@ export const dynamic = "force-dynamic";
  *   GET /api/cts/status?zone=<id>            -> JSON for én zone
  *   GET /api/cts/status?zone=<id>&format=text -> kun "ON" eller "OFF" (nemt til scripts)
  *   GET /api/cts/status?format=text          -> én linje pr. zone: "<id>=ON"
+ *   GET /api/cts/status?zone=<id>&format=lux -> kun lysniveauet som tal: 0 (slukket), 400, 700 eller 1000
+ *   GET /api/cts/status?format=lux           -> én linje pr. zone: "<id>=700"
  *
  * Godkendelse: API-nøglen (miljøvariablen CTS_API_KEY på Render) sendes som
  *   Authorization: Bearer <nøgle>        eller
@@ -98,6 +100,11 @@ export async function GET(req: NextRequest) {
     if (zones.length === 0) {
       return NextResponse.json({ error: `Ukendt zone "${zoneParam}"` }, { status: 404, headers: NO_STORE });
     }
+  }
+
+  if (sp.get("format") === "lux") {
+    const body = zoneParam ? String(zones[0].lux) : zones.map((z) => `${z.id}=${z.lux}`).join("\n");
+    return new NextResponse(body + "\n", { headers: { ...NO_STORE, "Content-Type": "text/plain; charset=utf-8" } });
   }
 
   if (sp.get("format") === "text") {

@@ -40,6 +40,8 @@ export interface BookingDTO {
   source: string | null;
   important: boolean | null;
   multiBookingGroupId: string | null;
+  /** Lysniveau i lux (400/700/1000). null = standard (400). */
+  lightLevel?: number | null;
 }
 
 export interface DayNoteDTO {

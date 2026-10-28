@@ -6,6 +6,7 @@ import { logAudit } from "@/lib/audit";
 import { findConflicts, findWarnings } from "@/lib/conflicts";
 import { notifyCancellation, notifyMove } from "@/lib/notifications";
 import { resetAccessCodeForBooking, revokeAccessCodesForBooking } from "@/lib/accessCodes";
+import { normalizeLightLevel } from "@/lib/lightLevels";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -25,6 +26,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // "silent" undertrykker aflysnings-/flyttemails (bruges fx til at rydde gamle
   // demobookinger op uden at forvirre foreninger) - heller ikke en kolonne.
   const { force, silent, ...body } = await req.json();
+  // Lysniveauet skal være 400/700/1000 (ellers standard) - se src/lib/lightLevels.ts.
+  if ("lightLevel" in body) body.lightLevel = normalizeLightLevel(body.lightLevel);
   const [existing] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, id));
   if (!existing) return NextResponse.json({ error: "Ikke fundet" }, { status: 404 });
 

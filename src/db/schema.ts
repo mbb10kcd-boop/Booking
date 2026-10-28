@@ -199,6 +199,9 @@ export const bookings = sqliteTable("bookings", {
   movedFromFacilityId: text("moved_from_facility_id"),
   movedFromStartsAt: text("moved_from_starts_at"),
   movedFromEndsAt: text("moved_from_ends_at"),
+  // Lysniveau i hallen i lux (400/700/1000) - sendes til CTS via /api/cts/status.
+  // Nullable: ingen værdi = standardniveauet 400 (se src/lib/lightLevels.ts).
+  lightLevel: integer("light_level"),
   // Rabatkode brugt ved en privatbooking via portalen (se discount_codes).
   discountCode: text("discount_code"),
   // Grupperer flere bookinger oprettet SAMTIDIG som én bestilling af

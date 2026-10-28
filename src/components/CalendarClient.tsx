@@ -344,6 +344,7 @@ function bookingTooltip(booking: BookingDTO, facilityNameStr: string, organizati
   ];
   if (booking.seasonGroupId) lines.push("↻ Sæsonbooking (gentages ugentligt)");
   if (booking.important) lines.push("⚑ VIGTIG/KAMP");
+  if (booking.lightLevel && booking.lightLevel !== 400) lines.push(`💡 Lys: ${booking.lightLevel} lux`);
   if (organizationNameStr) lines.push(`Forening: ${organizationNameStr}`);
   if (booking.contactName) lines.push(`Kontakt: ${booking.contactName}`);
   if (booking.contactEmail) lines.push(`E-mail: ${booking.contactEmail}`);
@@ -1641,6 +1642,7 @@ function DayGridView({
                       <div className="font-medium truncate leading-tight">
                         {b.important && <span className="mr-0.5">⚑</span>}
                         {b.seasonGroupId && <span className="mr-0.5">↻</span>}
+                        {b.lightLevel && b.lightLevel !== 400 && <span className="mr-0.5" title={`Lys: ${b.lightLevel} lux`}>💡{b.lightLevel}</span>}
                         {b.title}
                       </div>
                       <div className="opacity-75 leading-tight">
@@ -1995,6 +1997,7 @@ function WeekMatrixView({
                   <div className="text-[12px] font-semibold leading-tight break-words">
                     {b.important && <span title="VIGTIG/KAMP">⚑ </span>}
                     {season && <span title="Sæsonbooking - gentages ugentligt">↻ </span>}
+                    {b.lightLevel && b.lightLevel !== 400 && <span title={`Lys: ${b.lightLevel} lux`}>💡{b.lightLevel} </span>}
                     {b.title}
                   </div>
                   {org && height >= 72 && <div className="text-[10.5px] leading-tight opacity-80 truncate">{org}</div>}
@@ -2008,6 +2011,7 @@ function WeekMatrixView({
                 <div className="text-[11px] font-semibold leading-tight truncate">
                   <span className="tabular-nums font-bold">{fmtHM(startMin)}</span> {b.important ? "⚑ " : ""}
                   {season ? "↻ " : ""}
+                  {b.lightLevel && b.lightLevel !== 400 ? `💡${b.lightLevel} ` : ""}
                   {b.title}
                 </div>
               )}
@@ -2490,6 +2494,12 @@ function BookingDetail({
             <div className="flex justify-between">
               <span className="text-slate-500">E-mail</span>
               <span className="font-medium text-slate-800">{booking.contactEmail}</span>
+            </div>
+          )}
+          {booking.lightLevel && booking.lightLevel !== 400 && (
+            <div className="flex justify-between">
+              <span className="text-slate-500">Lys i hallen</span>
+              <span className="font-semibold text-amber-700">💡 {booking.lightLevel} lux</span>
             </div>
           )}
           {booking.accessCode && (

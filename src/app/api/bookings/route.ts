@@ -6,6 +6,7 @@ import { logAudit } from "@/lib/audit";
 import { findConflicts, findWarnings } from "@/lib/conflicts";
 import { confirmationMessage } from "@/lib/ai/messages";
 import { sendNotification } from "@/lib/mailer";
+import { normalizeLightLevel } from "@/lib/lightLevels";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -69,6 +70,7 @@ export async function POST(req: NextRequest) {
     price: body.price ?? 0,
     paymentStatus: body.paymentStatus ?? "ikke_paakraevet",
     important: body.important ?? false,
+    lightLevel: normalizeLightLevel(body.lightLevel),
     notes: body.notes ?? null,
     source: body.source ?? "manuel",
     createdBy: body.createdBy ?? "Medarbejder",
