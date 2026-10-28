@@ -23,6 +23,7 @@ import {
 import { capitalizeDaDate, formatDaDate, formatDaTime } from "@/lib/ai/messages";
 import { isoWeekNumber, localISODate, nowLocalDateTimeString, roundDateTimeLocalString } from "@/lib/date";
 import { BookingFormModal } from "./BookingFormModal";
+import { DEFAULT_LIGHT_LEVEL, LIGHT_LEVELS, facilityHasLightControl } from "@/lib/lightLevels";
 import { DayNoteModal } from "./DayNoteModal";
 
 type ViewMode = "ugeplan" | "dag";
@@ -584,6 +585,25 @@ export function CalendarClient({
     setContextMenu({ x: e.clientX, y: e.clientY, booking });
   }
 
+  /** Sætter lysniveauet (lux) på én booking - eller på denne og alle senere forekomster af en sæson. */
+  async function quickSetLight(booking: BookingDTO, level: number, wholeSeason: boolean) {
+    setContextMenu(null);
+    if (wholeSeason && booking.seasonGroupId) {
+      await fetch(`/api/bookings/season/${booking.seasonGroupId}/light`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ anchorBookingId: booking.id, lightLevel: level }),
+      });
+    } else {
+      await fetch(`/api/bookings/${booking.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lightLevel: level }),
+      });
+    }
+    loadBookings();
+  }
+
   /** "Slet stille": bookingen fjernes, men kommer ikke på aflysningslisten på hjemmesiden, og der sendes ingen mail. */
   async function quickSilentDelete(booking: BookingDTO) {
     const label = booking.seasonGroupId ? "denne dags forekomst af" : "";
@@ -1083,6 +1103,8 @@ export function CalendarClient({
           }}
           onEdit={() => quickEdit(contextMenu.booking)}
           onToggleImportant={() => quickToggleImportant(contextMenu.booking)}
+          hasLight={facilityHasLightControl(contextMenu.booking.facilityId, facilities)}
+          onSetLight={(level, wholeSeason) => quickSetLight(contextMenu.booking, level, wholeSeason)}
           onCancelDay={() => quickCancelBooking(contextMenu.booking)}
           onCancelSeason={() => quickCancelSeason(contextMenu.booking)}
           onSilentDelete={() => quickSilentDelete(contextMenu.booking)}
@@ -1148,6 +1170,8 @@ function BookingContextMenu({
   onOpenDetails,
   onEdit,
   onToggleImportant,
+  hasLight,
+  onSetLight,
   onCancelDay,
   onCancelSeason,
   onSilentDelete,
@@ -1165,6 +1189,8 @@ function BookingContextMenu({
   onOpenDetails: () => void;
   onEdit: () => void;
   onToggleImportant: () => void;
+  hasLight: boolean;
+  onSetLight: (level: number, wholeSeason: boolean) => void;
   onCancelDay: () => void;
   onCancelSeason: () => void;
   onSilentDelete: () => void;
@@ -1204,7 +1230,7 @@ function BookingContextMenu({
   // Undgår at menuen render's uden for skærmens synlige område ved klik tæt
   // på højre/nederste kant.
   const maxLeft = typeof window !== "undefined" ? window.innerWidth - 248 : x;
-  const maxTop = typeof window !== "undefined" ? window.innerHeight - 260 : y;
+  const maxTop = typeof window !== "undefined" ? window.innerHeight - 540 : y;
   const style: CSSProperties = {
     position: "fixed",
     top: Math.max(8, Math.min(y, maxTop)),
@@ -1229,6 +1255,43 @@ function BookingContextMenu({
       <button className={itemClass} onClick={onToggleImportant}>
         {booking.important ? "Fjern VIGTIG/KAMP-markering" : "⚑ Markér som VIGTIG/KAMP"}
       </button>
+      {hasLight && booking.status !== "aflyst" && booking.status !== "afvist" && (
+        <div className="px-3 py-2 border-t border-b border-slate-100 space-y-1.5">
+          <div className="text-xs font-medium text-slate-500">💡 Lys i hallen{isSeason ? " (kun denne dag)" : ""}</div>
+          <div className="flex gap-1">
+            {LIGHT_LEVELS.map((lux) => {
+              const active = (booking.lightLevel ?? DEFAULT_LIGHT_LEVEL) === lux;
+              return (
+                <button
+                  key={lux}
+                  onClick={() => onSetLight(lux, false)}
+                  className={`flex-1 rounded-md border px-1 py-1 text-xs font-medium ${
+                    active ? "border-amber-500 bg-amber-400 text-amber-950" : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  {lux}
+                </button>
+              );
+            })}
+          </div>
+          {isSeason && (
+            <>
+              <div className="text-xs font-medium text-slate-500 pt-1">💡 Lys resten af sæsonen</div>
+              <div className="flex gap-1">
+                {LIGHT_LEVELS.map((lux) => (
+                  <button
+                    key={lux}
+                    onClick={() => onSetLight(lux, true)}
+                    className="flex-1 rounded-md border border-slate-300 bg-white px-1 py-1 text-xs font-medium text-slate-600 hover:bg-amber-50"
+                  >
+                    {lux}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
       {booking.status !== "aflyst" && booking.status !== "afvist" && (
         <>
           <button className={itemClass} onClick={onMoveTomorrow}>
