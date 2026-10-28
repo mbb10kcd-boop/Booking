@@ -1,5 +1,5 @@
 import { db, schema } from "@/db";
-import { eq, and, ne, lt, gt, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, ne, inArray, isNotNull } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
 import {
@@ -42,42 +42,6 @@ export function shouldGenerateAccessCode(opts: {
   // (Martin). Kun privatpersoner (ingen organizationId) er relevante her.
   if (opts.organizationId) return false;
   return resolveDoorFacilityId(opts.facility, opts.allFacilities) !== null;
-}
-
-/**
- * Finder en ledig kode fra dørens faste kodepulje (se doorCodePool i
- * schema.ts og /doerkoder). "Ledig" betyder her: ikke allerede tildelt en
- * anden AKTIV booking (dvs. ikke aflyst/afvist) hvis gyldighedsperiode
- * overlapper det ønskede tidsrum på samme dør. Koderne selv ændrer sig
- * aldrig - det er kun tildelingen af hvem der har hvilken kode hvornår,
- * der styres her. Returnerer null hvis puljen er tom, eller (meget
- * usandsynligt givet puljestørrelsen) alle koder allerede er i brug i det
- * ønskede tidsrum.
- *
- * Bruges kun som reserveløsning, når WeAccess-integrationen ikke er slået
- * til (WEACCESS_API_KEY ikke sat) eller døren ikke har et rigtigt WeAccess-id.
- */
-async function assignPoolCode(doorId: string, startsAt: string, endsAt: string): Promise<string | null> {
-  const pool = await db.select().from(schema.doorCodePool).where(eq(schema.doorCodePool.doorId, doorId));
-  if (pool.length === 0) return null;
-
-  const overlapping = await db
-    .select({ code: schema.accessCodes.code })
-    .from(schema.accessCodes)
-    .innerJoin(schema.bookings, eq(schema.accessCodes.bookingId, schema.bookings.id))
-    .where(
-      and(
-        eq(schema.accessCodes.doorId, doorId),
-        lt(schema.accessCodes.validFrom, endsAt),
-        gt(schema.accessCodes.validTo, startsAt),
-        ne(schema.bookings.status, "aflyst"),
-        ne(schema.bookings.status, "afvist")
-      )
-    );
-
-  const busy = new Set(overlapping.map((row) => row.code));
-  const free = pool.find((entry) => !busy.has(entry.code));
-  return free ? free.code : null;
 }
 
 /**
@@ -139,9 +103,11 @@ async function createWeAccessCode(
  * berettiget til en kode (forening, eller lokale uden kodedør) - eller hvis
  * koden ikke kunne oprettes (WeAccess-fejl, eller tom kodepulje).
  *
- * Er WeAccess-integrationen slået til (WEACCESS_API_KEY sat) og døren har et
- * rigtigt WeAccess-id, oprettes en rigtig kode på låsen. Ellers bruges den
- * gamle faste kodepulje som reserveløsning.
+ * Der findes bevidst INGEN reservekode-pulje: en kode der ikke er programmeret
+ * i låsen ville give gæsten en kode, der ikke virker. Kan koden ikke oprettes
+ * (WeAccess slået fra, døren uden WeAccess-id, eller WeAccess-fejl), returneres
+ * null og fejlen skrives i bookinghistorikken. Kalderne bruger
+ * accessCodeExpected() til at skelne "ingen kode nødvendig" fra "kode mangler".
  */
 export async function maybeCreateAccessCode(opts: {
   bookingId: string;
@@ -160,22 +126,21 @@ export async function maybeCreateAccessCode(opts: {
     return createWeAccessCode(opts, doorId);
   }
 
-  const code = await assignPoolCode(doorId, opts.startsAt, opts.endsAt);
-  if (!code) return null;
+  const reason = !isWeAccessEnabled()
+    ? "WeAccess er ikke slået til på serveren (WEACCESS_API_KEY mangler)"
+    : "døren har intet gyldigt WeAccess-id";
+  console.error(`Adgangskode: kunne ikke oprettes til booking ${opts.bookingId}: ${reason}`);
+  await logAudit("booking", opts.bookingId, "adgangskode_fejlet", `Kunne ikke oprette dørkode: ${reason}`);
+  return null;
+}
 
-  await db.insert(schema.accessCodes).values({
-    id: newId("code"),
-    bookingId: opts.bookingId,
-    facilityId: opts.facility.id,
-    doorId,
-    code,
-    validFrom: opts.startsAt,
-    validTo: opts.endsAt,
-    active: true,
-    usageLog: [{ at: new Date().toISOString(), event: "tildelt fra kodepulje" }],
-  });
-  await db.update(schema.bookings).set({ accessCode: code }).where(eq(schema.bookings.id, opts.bookingId));
-  return code;
+/** Skal bookingen have en dørkode? (privatperson + lokale med kodedør). */
+export function accessCodeExpected(opts: {
+  organizationId: string | null | undefined;
+  facility: Facility;
+  allFacilities: Facility[];
+}): boolean {
+  return shouldGenerateAccessCode(opts);
 }
 
 /**

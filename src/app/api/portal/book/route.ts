@@ -5,9 +5,9 @@ import { newId } from "@/lib/ids";
 import { findConflicts } from "@/lib/conflicts";
 import { logAudit } from "@/lib/audit";
 import { confirmationMessage } from "@/lib/ai/messages";
-import { maybeCreateAccessCode } from "@/lib/accessCodes";
+import { maybeCreateAccessCode, accessCodeExpected } from "@/lib/accessCodes";
 import { sendNotification } from "@/lib/mailer";
-import { checkDiscountCode, redeemDiscount, type DiscountRow } from "@/lib/discounts";
+import { checkDiscountCode, redeemDiscount, releaseDiscount, type DiscountRow } from "@/lib/discounts";
 
 /** Offentlig bookingportal: opret en booking som ekstern gæst (privatperson) */
 export async function POST(req: NextRequest) {
@@ -115,6 +115,19 @@ export async function POST(req: NextRequest) {
       startsAt,
       endsAt,
     });
+
+    // Kunne dørkoden ikke oprettes (fx WeAccess nede), gennemføres bookingen
+    // IKKE - gæsten må ikke stå med en bekræftet tid uden kode. Rul tilbage og
+    // giv en tydelig fejlmelding (fejlen står i bookinghistorikken).
+    if (!code && accessCodeExpected({ organizationId: null, facility, allFacilities })) {
+      await db.delete(schema.payments).where(eq(schema.payments.bookingId, id));
+      await db.delete(schema.bookings).where(eq(schema.bookings.id, id));
+      if (discountRow) await releaseDiscount(discountRow);
+      return NextResponse.json(
+        { error: "Vi kunne desværre ikke oprette din dørkode lige nu, så bookingen er ikke gennemført. Prøv igen om lidt, eller kontakt Grenaa Idrætscenter." },
+        { status: 503 }
+      );
+    }
 
     await sendNotification({
       id: newId("notif"),

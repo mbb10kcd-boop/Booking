@@ -5,9 +5,9 @@ import { newId } from "@/lib/ids";
 import { findConflicts } from "@/lib/conflicts";
 import { logAudit } from "@/lib/audit";
 import { groupConfirmationMessage } from "@/lib/ai/messages";
-import { maybeCreateAccessCode } from "@/lib/accessCodes";
+import { maybeCreateAccessCode, accessCodeExpected } from "@/lib/accessCodes";
 import { sendNotification } from "@/lib/mailer";
-import { checkDiscountCode, redeemDiscount, type DiscountRow } from "@/lib/discounts";
+import { checkDiscountCode, redeemDiscount, releaseDiscount, type DiscountRow } from "@/lib/discounts";
 
 /**
  * Offentlig bookingportal: opret en bestilling af FLERE indbyrdes
@@ -153,6 +153,16 @@ export async function POST(req: NextRequest) {
       startsAt,
       endsAt,
     });
+    // Ingen dørkode -> gennemfør ikke bookingen (se /api/portal/book).
+    if (!code && accessCodeExpected({ organizationId: null, facility: referenceFacility, allFacilities })) {
+      await db.delete(schema.payments).where(inArray(schema.payments.bookingId, bookingIds));
+      await db.delete(schema.bookings).where(inArray(schema.bookings.id, bookingIds));
+      if (discountRow) await releaseDiscount(discountRow);
+      return NextResponse.json(
+        { error: "Vi kunne desværre ikke oprette din dørkode lige nu, så bookingen er ikke gennemført. Prøv igen om lidt, eller kontakt Grenaa Idrætscenter." },
+        { status: 503 }
+      );
+    }
     if (code) {
       await db
         .update(schema.bookings)

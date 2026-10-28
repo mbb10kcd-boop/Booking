@@ -65,6 +65,7 @@ export default function PublicBookingPortal() {
   const [discountError, setDiscountError] = useState<string | null>(null);
   const [discountBusy, setDiscountBusy] = useState(false);
   const [accessCode, setAccessCode] = useState<string | null>(null);
+  const [accessCodeMissing, setAccessCodeMissing] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -256,6 +257,7 @@ export default function PublicBookingPortal() {
     setBusy(false);
     if (data.bookings) setBookings(data.bookings);
     setAccessCode(data.accessCode);
+    setAccessCodeMissing(!!data.accessCodeError);
     setStep("kvittering");
   }
 
@@ -747,6 +749,12 @@ export default function PublicBookingPortal() {
                   <div className="text-xs text-blue-500 uppercase tracking-wide">Din dørkode</div>
                   <div className="text-3xl font-mono font-bold text-blue-800">{accessCode}</div>
                   <div className="text-xs text-blue-600 mt-2">Koden virker fra {DOOR_EARLY_MINUTES} minutter før din tid starter.</div>
+                </div>
+              )}
+              {accessCodeMissing && (
+                <div className="rounded-xl bg-red-50 border border-red-200 py-3 px-4 text-sm text-red-700">
+                  Vi kunne desværre ikke oprette din dørkode automatisk. Din tid er reserveret og betalt - kontakt
+                  Grenaa Idrætscenter, så sender vi koden hurtigst muligt.
                 </div>
               )}
               <p className="text-xs text-slate-400">En bekræftelsesmail er sendt til {email} (se Notifikationer i administrationen).</p>

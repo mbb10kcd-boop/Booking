@@ -3,7 +3,7 @@ import { db, schema } from "@/db";
 import { eq, inArray } from "drizzle-orm";
 import { newId } from "@/lib/ids";
 import { logAudit } from "@/lib/audit";
-import { maybeCreateAccessCode } from "@/lib/accessCodes";
+import { maybeCreateAccessCode, accessCodeExpected } from "@/lib/accessCodes";
 import { DOOR_EARLY_MINUTES } from "@/lib/doorConfig";
 import { sendNotification } from "@/lib/mailer";
 
@@ -61,6 +61,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pa
     startsAt: primaryBooking.startsAt,
     endsAt: primaryBooking.endsAt,
   });
+  // Betalingen er allerede gennemført, så bookingen rulles ikke tilbage - men
+  // gæsten får besked om, at koden mangler, og fejlen står i bookinghistorikken.
+  const accessCodeError =
+    !code &&
+    accessCodeExpected({ organizationId: primaryBooking.organizationId, facility: referenceFacility, allFacilities });
   if (code && groupBookingIds.length > 1) {
     await db
       .update(schema.bookings)
@@ -74,10 +79,12 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pa
     bookingId: primaryBooking.id,
     type: "betalingskvittering",
     recipient: primaryBooking.contactEmail ?? "ukendt",
-    subject: code ? "Betaling modtaget - din adgangskode" : "Betaling modtaget",
+    subject: code ? "Betaling modtaget - din adgangskode" : accessCodeError ? "Betaling modtaget - dørkode mangler" : "Betaling modtaget",
     body: code
       ? `Tak for din betaling (${facilityNames.join(", ")}). Din dørkode er ${code}, gyldig ${primaryBooking.startsAt} - ${primaryBooking.endsAt} (koden virker fra ${DOOR_EARLY_MINUTES} minutter før din tid starter).`
-      : `Tak for din betaling (${facilityNames.join(", ")}).`,
+      : accessCodeError
+        ? `Tak for din betaling (${facilityNames.join(", ")}). Vi kunne desværre ikke oprette din dørkode automatisk. Kontakt Grenaa Idrætscenter, så sender vi den hurtigst muligt - din tid er reserveret.`
+        : `Tak for din betaling (${facilityNames.join(", ")}).`,
   });
 
   await logAudit("booking", primaryBooking.id, "betalt", code ? `Adgangskode ${code} genereret` : undefined);
@@ -85,5 +92,5 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pa
   const [updatedPrimary] = await db.select().from(schema.bookings).where(eq(schema.bookings.id, primaryBooking.id));
   const updatedGroupBookings = await db.select().from(schema.bookings).where(inArray(schema.bookings.id, groupBookingIds));
 
-  return NextResponse.json({ booking: updatedPrimary, bookings: updatedGroupBookings, accessCode: code });
+  return NextResponse.json({ booking: updatedPrimary, bookings: updatedGroupBookings, accessCode: code, accessCodeError });
 }

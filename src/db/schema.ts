@@ -402,8 +402,8 @@ export const accessCodes = sqliteTable("access_codes", {
 // "smart"/API-lag ovenpå). Systemet holder derefter selv styr på HVEM der
 // har hvilken kode hvornår, ved kun at tildele en kode fra puljen når den
 // ikke allerede er i brug af en anden aktiv booking i et overlappende
-// tidsrum på samme dør - se assignPoolCode() i src/lib/accessCodes.ts og
-// /doerkoder for den fulde liste, personalet skal indtaste i låsene.
+// tidsrum på samme dør. UDFASET: puljen bruges ikke længere (kun WeAccess),
+// tabellen står kun tilbage for at undgå en migrering.
 //
 // Koderne er bevidst FASTE (skrevet direkte i src/db/seed.ts, ikke
 // genereret tilfældigt ved hver deploy) - ellers ville de koder systemet
