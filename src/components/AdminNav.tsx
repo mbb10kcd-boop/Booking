@@ -13,7 +13,6 @@ const LINKS = [
   { href: "/anmodninger", label: "Anmodninger", icon: "⇄" },
   { href: "/skaerme", label: "Infoskærme", icon: "▣" },
   { href: "/notifikationer", label: "Beskeder", icon: "↻" },
-  { href: "/doerkoder", label: "Dørkoder", icon: "🔑" },
   { href: "/rabatkoder", label: "Rabatkoder", icon: "%" },
 ];
 
