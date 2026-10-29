@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { stepDateTimeLocalString, stepTimeString } from "@/lib/date";
+import { stepDateTimeLocalString, stepTimeString, TIME_STEP_MINUTES } from "@/lib/date";
 
 /**
  * <input type="datetime-local"> eller <input type="time"> hvor museknap-rul
- * altid springer i trin af `stepMinutes` minutter (standard 10), uanset
+ * altid springer i trin af `stepMinutes` minutter (standard 5), uanset
  * hvilket felt (time/minut/dag) der er markeret i inputtet.
  *
  * Baggrund: vi havde tidligere `onWheel` som en almindelig JSX-prop, med et
@@ -27,8 +27,8 @@ export function WheelStepInput({
   value,
   onChange,
   onRoundedBlur,
-  step = 600,
-  stepMinutes = 10,
+  step = TIME_STEP_MINUTES * 60,
+  stepMinutes = TIME_STEP_MINUTES,
   disabled,
   className,
 }: {

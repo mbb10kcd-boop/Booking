@@ -549,7 +549,7 @@ export function CalendarClient({
    * ønsker en bestemt dag, man blader kalenderen frem til dagen og
    * dobbeltklikker i stedet for at skulle taste datoen ind manuelt.
    * Klokkeslættet forudfyldes med det nuværende tidspunkt (rundet til
-   * nærmeste 10 minutter) - blot som et fornuftigt udgangspunkt, det
+   * nærmeste 5 minutter) - blot som et fornuftigt udgangspunkt, det
    * justeres frit i formularen bagefter.
    */
   function openNewBookingFor(dateStr: string, facilityId?: string, timeHHMM?: string) {

@@ -89,16 +89,22 @@ export function weeklyOccurrenceDates(from: string, until: string, weekday: numb
 }
 
 /**
+ * Trinstørrelse for bookingtider i minutter (Martin, oktober 2026: 5 i stedet
+ * for 10, da mange bookinger starter kvart over/i hel, fx 16:15 og 17:45).
+ */
+export const TIME_STEP_MINUTES = 5;
+
+/**
  * Runder et klokkeslæt ("HH:mm") til nærmeste multiplum af `stepMinutes`
- * (standard 10 min). Beslutning: bookingtider skal altid lande på hele
- * 10-minutters-intervaller (fx 15:50 eller 16:00, aldrig 15:51) - dels fordi
+ * (standard TIME_STEP_MINUTES = 5 min). Beslutning: bookingtider skal altid
+ * lande på hele 5-minutters-intervaller (fx 15:50 eller 16:05, aldrig 15:51) - dels fordi
  * browserens indbyggede tidsvælger ellers kræver at rulle igennem alle 60
  * minuttal, dels fordi det matcher hvordan tiderne faktisk bruges i praksis.
  * Bruges sammen med `step={stepMinutes * 60}` på <input type="time">, som
- * gør at klik på op/ned-pilene i sig selv springer 10 minutter ad gangen;
+ * gør at klik på op/ned-pilene i sig selv springer 5 minutter ad gangen;
  * denne funktion retter derudover op på tastede/indsatte "skæve" tider.
  */
-export function roundTimeString(time: string, stepMinutes = 10): string {
+export function roundTimeString(time: string, stepMinutes = TIME_STEP_MINUTES): string {
   const [hh, mm] = time.split(":").map(Number);
   if (Number.isNaN(hh) || Number.isNaN(mm)) return time;
   const total = ((Math.round((hh * 60 + mm) / stepMinutes) * stepMinutes) % 1440 + 1440) % 1440;
@@ -106,7 +112,7 @@ export function roundTimeString(time: string, stepMinutes = 10): string {
 }
 
 /** Samme afrunding som `roundTimeString`, men for en rå datetime-local-værdi ("YYYY-MM-DDTHH:mm"). */
-export function roundDateTimeLocalString(value: string, stepMinutes = 10): string {
+export function roundDateTimeLocalString(value: string, stepMinutes = TIME_STEP_MINUTES): string {
   const [datePart, timePart] = value.split("T");
   if (!datePart || !timePart) return value;
   const [year, month, day] = datePart.split("-").map(Number);
@@ -121,7 +127,7 @@ export function roundDateTimeLocalString(value: string, stepMinutes = 10): strin
 /**
  * Lægger `deltaMinutes` til et rå klokkeslæt ("HH:mm"), med rundkørsel i
  * døgnet. Bruges til at gøre museknap-rul over <input type="time"> hop i
- * 10-minutters-spring i stedet for browserens indbyggede 1-minuts-spring
+ * 5-minutters-spring i stedet for browserens indbyggede 1-minuts-spring
  * (Chrome/Edge respekterer ikke `step` ved rul, kun ved klik på op/ned-pilene
  * - feedback fra centeret var at det stadig "hoppede med 1 minut når man
  * ruller", så vi overtager selv rul-håndteringen).
