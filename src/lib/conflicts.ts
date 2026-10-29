@@ -2,6 +2,7 @@ import { db, schema } from "@/db";
 import { and, gt, inArray, lt, notInArray } from "drizzle-orm";
 import { facilitiesConflict, facilitiesWarn, getAllFacilities, type Facility } from "./facilities";
 import { nowLocalDateTimeString } from "./date";
+import { releaseStaleUnpaid } from "./stalePayments";
 
 export type Booking = typeof schema.bookings.$inferSelect;
 
@@ -20,6 +21,8 @@ function overlaps(startA: string, endA: string, startB: string, endB: string): b
  */
 export async function loadActiveBookingsBetween(from: string, to: string, facilityIds?: string[]): Promise<Booking[]> {
   if (facilityIds && facilityIds.length === 0) return [];
+  // Frigiv først tider hvor en kunde aldrig gennemførte betalingen.
+  await releaseStaleUnpaid();
   return db
     .select()
     .from(schema.bookings)

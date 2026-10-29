@@ -66,6 +66,8 @@ export default function PublicBookingPortal() {
   const [discountBusy, setDiscountBusy] = useState(false);
   const [accessCode, setAccessCode] = useState<string | null>(null);
   const [accessCodeMissing, setAccessCodeMissing] = useState(false);
+  // Er betalingen rigtig (Nexi: Dankort/MobilePay) eller simuleret? Styrer teksten på betalingsskærmen.
+  const [nexiPay, setNexiPay] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -249,14 +251,40 @@ export default function PublicBookingPortal() {
     }
   }
 
+  useEffect(() => {
+    if (step !== "betaling") return;
+    fetch("/api/portal/pay-mode")
+      .then((r) => r.json())
+      .then((d) => setNexiPay(!!d.nexi))
+      .catch(() => setNexiPay(false));
+  }, [step]);
+
   async function pay() {
     if (!paymentId) return;
     setBusy(true);
-    const res = await fetch(`/api/portal/pay/${paymentId}`, { method: "POST" });
-    const data = await res.json();
+    setError(null);
+    let data: { error?: string; redirectUrl?: string; bookings?: BookingDTO[]; accessCode?: string | null; accessCodeError?: boolean } = {};
+    let ok = false;
+    try {
+      const res = await fetch(`/api/portal/pay/${paymentId}`, { method: "POST" });
+      ok = res.ok;
+      data = await res.json();
+    } catch {
+      data = { error: "Der opstod en fejl. Prøv igen om lidt." };
+    }
+    if (!ok) {
+      setBusy(false);
+      setError(data.error ?? "Betalingen kunne ikke gennemføres.");
+      return;
+    }
+    if (data.redirectUrl) {
+      // Videre til Nexis betalingsside (Dankort/MobilePay). Knappen forbliver optaget, til siden skifter.
+      window.location.href = data.redirectUrl;
+      return;
+    }
     setBusy(false);
     if (data.bookings) setBookings(data.bookings);
-    setAccessCode(data.accessCode);
+    setAccessCode(data.accessCode ?? null);
     setAccessCodeMissing(!!data.accessCodeError);
     setStep("kvittering");
   }
@@ -712,10 +740,21 @@ export default function PublicBookingPortal() {
           {step === "betaling" && (
             <div className="space-y-4 text-center">
               <h2 className="font-semibold text-slate-900">Betaling</h2>
-              <p className="text-sm text-slate-500">
-                Der er endnu ikke koblet en rigtig betalingsudbyder til systemet. Dette er en simuleret betaling til
-                demonstration.
-              </p>
+              {nexiPay ? (
+                <p className="text-sm text-slate-500">
+                  Du sendes videre til en sikker betalingsside, hvor du kan betale med Dankort eller MobilePay. Din tid
+                  holdes reserveret, mens du betaler. Se{" "}
+                  <a href="/book/vilkaar" target="_blank" rel="noreferrer" className="underline">
+                    handelsbetingelserne
+                  </a>
+                  .
+                </p>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  Der er endnu ikke koblet en rigtig betalingsudbyder til systemet. Dette er en simuleret betaling til
+                  demonstration.
+                </p>
+              )}
               {isGroup && (
                 <div className="text-sm text-slate-500">
                   {groupCount} {groupCount === 1 ? "bane" : "baner"} &times; {hours} {hours === 1 ? "time" : "timer"}
@@ -725,8 +764,9 @@ export default function PublicBookingPortal() {
                 {payTotal} kr.
               </div>
               <button onClick={pay} disabled={busy} className="w-full rounded-xl bg-blue-600 text-white py-3 font-medium disabled:opacity-40">
-                {busy ? "Behandler..." : "Simulér betaling"}
+                {busy ? "Behandler..." : nexiPay ? `Betal ${payTotal} kr.` : "Simulér betaling"}
               </button>
+              {error && <div className="text-sm text-red-600">{error}</div>}
             </div>
           )}
 
