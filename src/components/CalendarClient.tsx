@@ -322,6 +322,92 @@ function shortFacilityName(name: string): { main: string; sub?: string } {
   return { main: name };
 }
 
+/**
+ * Blokerer facilitet B facilitet A? (samme regler som serverens `facilitiesConflict`
+ * i src/lib/facilities.ts: den ene er forælder til den anden via hårde koblinger.
+ * Løst koblede faciliteter - fx klatrevæg/opvisningshal - blokerer ikke.)
+ */
+function facilityBlocks(aId: string, bId: string, facs: FacilityDTO[]): boolean {
+  if (aId === bId) return false;
+  const byId = new Map(facs.map((f) => [f.id, f]));
+  const underAncestor = (descendantId: string, ancestorId: string): "block" | "warn" | null => {
+    let current: string | null = descendantId;
+    let mode: "block" | "warn" = "block";
+    const seen = new Set<string>();
+    while (current) {
+      if (seen.has(current)) return null;
+      seen.add(current);
+      const f = byId.get(current);
+      if (f?.conflictMode === "warn") mode = "warn";
+      const parent: string | null = f?.parentId ?? null;
+      if (parent === ancestorId) return mode;
+      current = parent;
+    }
+    return null;
+  };
+  return underAncestor(bId, aId) === "block" || underAncestor(aId, bId) === "block";
+}
+
+interface BlockedSpan {
+  startMin: number;
+  endMin: number;
+  label: string;
+  tooltip: string;
+  first: BookingDTO;
+}
+
+/**
+ * De tidsrum på `dayStr`, hvor facilitet `f` er optaget fordi en TILKNYTTET
+ * facilitet er booket (fx en badmintonbane i træningshallen, eller hele
+ * træningshallen set fra en bane). Overlappende tidsrum slås sammen.
+ */
+function blockedSpansFor(
+  f: FacilityDTO,
+  dayStr: string,
+  allBookings: BookingDTO[],
+  allFacilities: FacilityDTO[],
+  gridStartMin: number,
+  organizationName: (id: string | null) => string | undefined
+): BlockedSpan[] {
+  const nameOf = new Map(allFacilities.map((x) => [x.id, x.name]));
+  const raw: BlockedSpan[] = [];
+  for (const b of allBookings) {
+    if (b.facilityId === f.id || b.status === "aflyst" || b.status === "afvist") continue;
+    if (!bookingOnDay(b, dayStr)) continue;
+    if (!facilityBlocks(f.id, b.facilityId, allFacilities)) continue;
+    const seg = daySegment(b, dayStr, gridStartMin);
+    const srcName = nameOf.get(b.facilityId) ?? "";
+    const org = organizationName(b.organizationId);
+    raw.push({
+      startMin: seg.startMin,
+      endMin: seg.endMin,
+      label: shortFacilityName(srcName).main,
+      tooltip: `${shortFacilityName(srcName).main}: ${fmtHM(seg.startMin)}–${fmtHM(seg.endMin)}${org ? ` · ${org}` : b.title ? ` · ${b.title}` : ""}`,
+      first: b,
+    });
+  }
+  raw.sort((a, b) => a.startMin - b.startMin);
+  const merged: BlockedSpan[] = [];
+  for (const r of raw) {
+    const last = merged[merged.length - 1];
+    if (last && r.startMin <= last.endMin) {
+      last.endMin = Math.max(last.endMin, r.endMin);
+      if (!last.label.split(", ").includes(r.label)) last.label += `, ${r.label}`;
+      last.tooltip += `\n${r.tooltip}`;
+    } else {
+      merged.push({ ...r });
+    }
+  }
+  return merged;
+}
+
+/** Gennemsigtigt, skraveret felt: "optaget via en tilknyttet facilitet". */
+const BLOCKED_STYLE: CSSProperties = {
+  backgroundImage:
+    "repeating-linear-gradient(135deg, rgba(71,85,105,0.22) 0, rgba(71,85,105,0.22) 5px, rgba(71,85,105,0.07) 5px, rgba(71,85,105,0.07) 10px)",
+  border: "1px dashed rgba(71,85,105,0.55)",
+};
+
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
   ikke_paakraevet: "",
   afventer: "afventer betaling",
@@ -1007,6 +1093,8 @@ export function CalendarClient({
             weekStart={rangeStart}
             groups={tabGroups}
             bookings={visibleBookings}
+            allBookings={bookings}
+            allFacilities={facilities}
             organizationName={organizationName}
             onSelect={setSelectedBooking}
             onContextMenu={openContextMenu}
@@ -1023,6 +1111,8 @@ export function CalendarClient({
             day={rangeStart}
             facilities={tabFacilities}
             bookings={visibleBookings}
+            allBookings={bookings}
+            allFacilities={facilities}
             organizationName={organizationName}
             onSelect={setSelectedBooking}
             onContextMenu={openContextMenu}
@@ -1417,6 +1507,8 @@ function DayGridView({
   day,
   facilities,
   bookings,
+  allBookings,
+  allFacilities,
   organizationName,
   onSelect,
   onContextMenu,
@@ -1427,6 +1519,8 @@ function DayGridView({
   day: Date;
   facilities: FacilityDTO[];
   bookings: BookingDTO[];
+  allBookings: BookingDTO[];
+  allFacilities: FacilityDTO[];
   organizationName: (id: string | null) => string | undefined;
   onSelect: (b: BookingDTO) => void;
   onContextMenu: (e: ReactMouseEvent, b: BookingDTO) => void;
@@ -1665,6 +1759,22 @@ function DayGridView({
                   style={{ top: (m - gridStartMin) * DAY_GRID_PX_PER_MIN }}
                 />
               ))}
+              {blockedSpansFor(f, dayStr, allBookings, allFacilities, gridStartMin, organizationName).map((sp, k) => {
+                const top = (Math.max(sp.startMin, gridStartMin) - gridStartMin) * DAY_GRID_PX_PER_MIN;
+                const height = (Math.min(sp.endMin, gridEndMin) - Math.max(sp.startMin, gridStartMin)) * DAY_GRID_PX_PER_MIN;
+                if (height <= 0) return null;
+                return (
+                  <div
+                    key={`blocked-${k}`}
+                    onClick={() => onSelect(sp.first)}
+                    title={`Optaget via tilknyttet facilitet:\n${sp.tooltip}`}
+                    className="absolute left-0.5 right-0.5 overflow-hidden rounded-lg cursor-pointer"
+                    style={{ top, height, ...BLOCKED_STYLE }}
+                  >
+                    <div className="px-1.5 text-[11px] font-semibold leading-tight text-slate-700 truncate">Optaget: {sp.label}</div>
+                  </div>
+                );
+              })}
               {dayBookings
                 .filter((b) => {
                   const isDragged = drag?.bookingId === b.id;
@@ -1762,6 +1872,9 @@ function CalendarLegend() {
       <span className={`${chip} ${waiting.className}`} style={waiting.style}>
         Afventer
       </span>
+      <span className={`${chip} text-slate-700`} style={BLOCKED_STYLE}>
+        Skraveret = optaget via tilknyttet bane/hal
+      </span>
       <span className="text-slate-400">Dobbeltklik i en celle for at oprette en booking. Højreklik på en booking for hurtige handlinger.</span>
     </div>
   );
@@ -1832,6 +1945,8 @@ function WeekMatrixView({
   weekStart,
   groups,
   bookings,
+  allBookings,
+  allFacilities,
   organizationName,
   onSelect,
   onContextMenu,
@@ -1846,6 +1961,9 @@ function WeekMatrixView({
   /** Rækker: hver gruppe er én række; en gruppe med flere faciliteter vises side om side i hver dag. */
   groups: FacilityDTO[][];
   bookings: BookingDTO[];
+  /** Alle bookinger (også på andre faner) - bruges til at vise at en hal er optaget via en tilknyttet bane. */
+  allBookings: BookingDTO[];
+  allFacilities: FacilityDTO[];
   organizationName: (id: string | null) => string | undefined;
   onSelect: (b: BookingDTO) => void;
   onContextMenu: (e: ReactMouseEvent, b: BookingDTO) => void;
@@ -1981,6 +2099,27 @@ function WeekMatrixView({
             style={{ top: (nowMin - gridStartMin) * WEEK_PX_PER_MIN }}
           />
         )}
+        {blockedSpansFor(f, dayStr, allBookings, allFacilities, gridStartMin, organizationName).map((sp, k) => {
+          const top = (Math.max(sp.startMin, gridStartMin) - gridStartMin) * WEEK_PX_PER_MIN;
+          const height = (Math.min(sp.endMin, gridEndMin) - Math.max(sp.startMin, gridStartMin)) * WEEK_PX_PER_MIN;
+          if (height <= 0) return null;
+          return (
+            <div
+              key={`blocked-${k}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(sp.first);
+              }}
+              title={`Optaget via tilknyttet facilitet:\n${sp.tooltip}`}
+              className="absolute left-px right-px overflow-hidden rounded-md cursor-pointer"
+              style={{ top, height, ...BLOCKED_STYLE }}
+            >
+              <div className="px-1 text-[10px] font-semibold leading-tight text-slate-700 truncate">
+                Optaget: {sp.label}
+              </div>
+            </div>
+          );
+        })}
         {multiItems.map(({ b, startMin, endMin }) => {
           const v = bookingVisual(color, b);
           const org = organizationName(b.organizationId);
