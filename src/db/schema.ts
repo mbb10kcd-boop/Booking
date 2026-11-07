@@ -527,3 +527,34 @@ export const discountCodes = sqliteTable("discount_codes", {
   active: integer("active", { mode: "boolean" }).notNull().default(true),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
+
+// ---------------------------------------------------------------------------
+// Winkas-log (plan B uden API): hvad skal bookes/ændres/aflyses manuelt i Winkas
+// ---------------------------------------------------------------------------
+// winkas_sync husker, hvilken udgave af en booking der sidst blev trukket i en
+// log (facilitet + tid). Ud fra den kan næste log vise præcis hvad der er NYT,
+// FLYTTET (gammel -> ny tid) eller AFLYST siden sidst. Tabellerne oprettes af
+// src/lib/winkasLog.ts ved første brug (CREATE TABLE IF NOT EXISTS).
+export const appSettings = sqliteTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});
+
+export const winkasSync = sqliteTable("winkas_sync", {
+  bookingId: text("booking_id").primaryKey(),
+  facilityId: text("facility_id").notNull(),
+  startsAt: text("starts_at").notNull(),
+  endsAt: text("ends_at").notNull(),
+  exportId: text("export_id"),
+  exportedAt: text("exported_at"),
+});
+
+export const winkasExports = sqliteTable("winkas_exports", {
+  id: text("id").primaryKey(),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+  createdBy: text("created_by"),
+  newCount: integer("new_count").default(0),
+  movedCount: integer("moved_count").default(0),
+  cancelledCount: integer("cancelled_count").default(0),
+  csv: text("csv").notNull(),
+});

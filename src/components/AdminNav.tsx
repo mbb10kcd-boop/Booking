@@ -14,6 +14,7 @@ const LINKS = [
   { href: "/skaerme", label: "Infoskærme", icon: "▣" },
   { href: "/notifikationer", label: "Beskeder", icon: "↻" },
   { href: "/rabatkoder", label: "Rabatkoder", icon: "%" },
+  { href: "/winkas-log", label: "Winkas-log", icon: "⇪" },
 ];
 
 const EXTERNAL_LINKS = [
