@@ -62,6 +62,7 @@ async function ensureColumns() {
     ["bookings", "moved_from_ends_at", "TEXT"],
     ["bookings", "discount_code", "TEXT"],
     ["bookings", "light_level", "INTEGER"],
+    ["organizations", "show_on_cancel_list", "INTEGER DEFAULT 1"],
   ];
   await sqlite.execute(
     `CREATE TABLE IF NOT EXISTS discount_codes (

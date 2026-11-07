@@ -112,6 +112,9 @@ export const organizations = sqliteTable("organizations", {
   // navn og (aktuelle) kontaktmail. Se /foreninger. Foreninger uden nogen
   // bookinger kan i stedet slettes helt (se DELETE /api/organizations/[id]).
   archived: integer("archived", { mode: "boolean" }).default(false),
+  // "Kan vælges på aflysningslister": styrer om foreningen står i rullemenuen på
+  // den offentlige aflysningsliste (/aflysninger). Slås fra for fx pedel/interne.
+  showOnCancelList: integer("show_on_cancel_list", { mode: "boolean" }).default(true),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 

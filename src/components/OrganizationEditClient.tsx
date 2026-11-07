@@ -13,6 +13,7 @@ interface OrganizationEditable {
   contactPhone: string | null;
   archived: boolean | null;
   internal: boolean;
+  showOnCancelList: boolean;
 }
 
 export function OrganizationEditClient({
@@ -75,6 +76,17 @@ export function OrganizationEditClient({
     setOrg((prev) => ({ ...prev, ...updated }));
     setSavedNotice(true);
     setTimeout(() => setSavedNotice(false), 3000);
+  }
+
+  async function toggleCancelList(next: boolean) {
+    const prev = org.showOnCancelList;
+    setOrg((o) => ({ ...o, showOnCancelList: next }));
+    const res = await fetch(`/api/organizations/${org.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ showOnCancelList: next }),
+    });
+    if (!res.ok) setOrg((o) => ({ ...o, showOnCancelList: prev }));
   }
 
   async function toggleArchived() {
@@ -166,6 +178,21 @@ export function OrganizationEditClient({
           />
         </div>
       </div>
+
+      <label className="flex items-start gap-2 text-sm cursor-pointer">
+        <input
+          type="checkbox"
+          checked={org.showOnCancelList}
+          onChange={(e) => toggleCancelList(e.target.checked)}
+          className="mt-0.5 h-4 w-4"
+        />
+        <span>
+          <span className="font-medium text-slate-700">KAN VÆLGES PÅ AFLYSNINGSLISTER</span>
+          <span className="block text-xs text-slate-400">
+            Når der er sat kryds, står foreningen i rullemenuen på den offentlige aflysningsliste. Gemmes med det samme.
+          </span>
+        </span>
+      </label>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 

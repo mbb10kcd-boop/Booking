@@ -34,6 +34,7 @@ export default async function OrganizationDetailPage({ params }: { params: Promi
             contactPhone: org.contactPhone,
             archived: org.archived,
             internal: org.internal ?? false,
+            showOnCancelList: org.showOnCancelList !== false,
           }}
           bookingCount={bookings.length}
         />

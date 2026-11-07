@@ -108,7 +108,7 @@ export async function loadCancelList(): Promise<CancelListRow[]> {
 export async function listPublicOrgNames(): Promise<string[]> {
   const orgs = await db.select().from(schema.organizations);
   return orgs
-    .filter((o) => o.status === "godkendt" && !o.internal && !o.archived && !o.name.startsWith("ZZ"))
+    .filter((o) => o.status === "godkendt" && !o.internal && !o.archived && o.showOnCancelList !== false && !o.name.startsWith("ZZ"))
     .map((o) => o.name)
     .sort((a, b) => a.localeCompare(b, "da"));
 }
