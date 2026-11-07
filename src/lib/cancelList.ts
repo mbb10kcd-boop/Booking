@@ -103,3 +103,60 @@ export async function loadCancelList(): Promise<CancelListRow[]> {
   result.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime) || a.facility.localeCompare(b.facility));
   return result;
 }
+
+/** Foreninger der kan vælges på den offentlige aflysningsliste (ikke interne/arkiverede/test). */
+export async function listPublicOrgNames(): Promise<string[]> {
+  const orgs = await db.select().from(schema.organizations);
+  return orgs
+    .filter((o) => o.status === "godkendt" && !o.internal && !o.archived && !o.name.startsWith("ZZ"))
+    .map((o) => o.name)
+    .sort((a, b) => a.localeCompare(b, "da"));
+}
+
+/**
+ * Aflysningslisten filtreret til én forening: foreningens egne aflysninger/
+ * flytninger samt begivenheder lagt direkte på listen (uden forening), som
+ * rammer et tidspunkt hvor foreningen har en aktiv booking i samme hal.
+ */
+export async function loadCancelListForOrg(orgName: string): Promise<CancelListRow[]> {
+  const all = await loadCancelList();
+  const lower = orgName.toLowerCase();
+  const own = all.filter((r) => r.who?.toLowerCase() === lower);
+  const events = all.filter((r) => r.who === null);
+  if (events.length === 0) return own;
+
+  const orgs = await db.select().from(schema.organizations);
+  const org = orgs.find((o) => o.name.toLowerCase() === lower);
+  if (!org) return own;
+  const from = `${localISODate()}T00:00:00`;
+  const [bookings, facilities] = await Promise.all([
+    db
+      .select()
+      .from(schema.bookings)
+      .where(
+        and(
+          eq(schema.bookings.organizationId, org.id),
+          notInArray(schema.bookings.status, ["aflyst", "afvist"]),
+          gte(schema.bookings.endsAt, from)
+        )
+      ),
+    db.select().from(schema.facilities),
+  ]);
+  const facById = new Map(facilities.map((f) => [f.id, f]));
+  const root = (id: string) => {
+    let f = facById.get(id);
+    for (let i = 0; i < 5 && f?.parentId && facById.get(f.parentId); i++) f = facById.get(f.parentId);
+    return f?.name;
+  };
+  const affected = events.filter((e) =>
+    bookings.some(
+      (b) =>
+        root(b.facilityId) === e.hall &&
+        b.startsAt < `${e.date}T${e.endTime}:00` &&
+        b.endsAt > `${e.date}T${e.startTime}:00`
+    )
+  );
+  return [...own, ...affected].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime) || a.facility.localeCompare(b.facility)
+  );
+}

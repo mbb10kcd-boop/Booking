@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { loadCancelList } from "@/lib/cancelList";
+import { loadCancelList, loadCancelListForOrg, listPublicOrgNames } from "@/lib/cancelList";
+import ForeningVaelger from "@/components/ForeningVaelger";
 import { weekdayName } from "@/lib/statusLabels";
 
 export const dynamic = "force-dynamic";
@@ -17,14 +18,18 @@ const fmtTime = (t: string) => t.replace(":", ".");
  *   /aflysninger                -> alle haller
  *   /aflysninger?hal=Opvisning  -> kun haller hvis navn indeholder teksten
  *   &titel=nej                  -> uden overskrift (hvis siden har sin egen)
+ *   ?forening=Grenaa%20Bordtennis%20klub -> kun den forenings aflysninger
+ *   &vaelger=nej                -> skjul foreningsvælgeren (fast forening i iframen)
  */
 export default async function AflysningerPage({
   searchParams,
 }: {
-  searchParams: Promise<{ hal?: string; titel?: string }>;
+  searchParams: Promise<{ hal?: string; titel?: string; forening?: string; vaelger?: string }>;
 }) {
-  const { hal, titel } = await searchParams;
-  const all = await loadCancelList();
+  const { hal, titel, forening, vaelger } = await searchParams;
+  const names = await listPublicOrgNames();
+  const valgt = names.find((n) => n.toLowerCase() === (forening ?? "").toLowerCase()) ?? "";
+  const all = valgt ? await loadCancelListForOrg(valgt) : await loadCancelList();
   const items = hal ? all.filter((r) => r.hall.toLowerCase().includes(hal.toLowerCase())) : all;
 
   // Samme hal, dato, tid og årsag samles til én række, hvis flere foreninger
@@ -49,8 +54,11 @@ export default async function AflysningerPage({
     <div className="min-h-screen bg-white px-2 py-3 text-slate-900">
       <div className="mx-auto max-w-4xl">
         {titel !== "nej" && <h1 className="mb-3 text-xl font-bold">Aflysninger</h1>}
+        {vaelger !== "nej" && <ForeningVaelger names={names} value={valgt} />}
         {halls.length === 0 ? (
-          <p className="text-sm text-slate-600">Der er ingen aflysninger lige nu.</p>
+          <p className="text-sm text-slate-600">
+            {valgt ? `Der er ingen aflysninger for ${valgt} lige nu.` : "Der er ingen aflysninger lige nu."}
+          </p>
         ) : (
           halls.map((h) => (
             <section key={h} className="mb-6">
