@@ -209,8 +209,8 @@ const FACILITY_TAB_DEFS: FacilityTabDef[] = [
     key: "moedelokaler",
     label: "Mødelokaler",
     color: "#0d9488",
-    match: (n) => n.startsWith("mødelokale") || n === "klubsekretariatet",
-    order: ["mødelokale 1", "mødelokale 2", "mødelokale 3", "mødelokale 4", "klubsekretariatet"],
+    match: (n) => n.startsWith("mødelokale") || n === "klubsekretariatet" || n === "kantinen",
+    order: ["mødelokale 1", "mødelokale 2", "mødelokale 3", "mødelokale 4", "klubsekretariatet", "kantinen"],
   },
   {
     key: "klatrevaeg",
