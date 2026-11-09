@@ -292,3 +292,56 @@ details.fold .cards { margin-top: .4rem; }
 .room.r-busy .r-st { color: var(--cancel); }
 .r-tx small { color: var(--muted); font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (min-width: 700px) { .rooms { grid-template-columns: repeat(4, 1fr); } }
+
+/* Mørk visning (følger telefonens/computerens indstilling) - lettere på øjnene i hallen om aftenen */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0e1519; --surface: #172229; --ink: #e6edf0; --muted: #9db0b9; --line: #2c3b44;
+    --primary: #5aa9d6; --primary-ink: #06222f; --primary-soft: #16313f;
+    --ok: #6fd49a; --ok-soft: #14301f; --now: #5aa9d6; --now-soft: #153242;
+    --new: #6fd49a; --changed: #f0b25a; --changed-soft: #3a2b10;
+    --moved: #c4a3ee; --moved-soft: #2a1f3f; --cancel: #ff8c84; --cancel-soft: #3d1a18;
+    --wait: #e8c75a; --wait-soft: #38300f; --important: #e8602a; --important-soft: #3f2112;
+    --shadow: 0 1px 2px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.25);
+  }
+  .topbar { background: #0b3a55; }
+  .fab { color: #06222f; border-color: var(--bg); }
+  .tab-create.active .fab { background: #8cc6e8; }
+  .btn.primary, .btn.danger { color: #06222f; }
+  .btn.danger { background: #ff8c84; border-color: #ff8c84; }
+  .b-now { color: #06222f; } .b-now .dot { background: #06222f; }
+  .b-important { color: #fff; }
+  .count { background: #24333c; }
+  .bk:active, .chg:hover { background: #1f2f38; }
+  .bk-note, .n-note { color: #f6dd9a; background: #3a2f12; border-color: #6b5518; }
+  .bk-go { color: #6f8691; }
+  .bk.is-now { border-color: #2f6283; box-shadow: 0 0 0 2px rgba(90,169,214,.35); }
+  .bk.is-cancelled { background: #2a1a1a; border-color: #5a2d2a; }
+  .b-new { border-color: #2c6a47; } .b-changed { border-color: #7a5a22; } .b-moved { border-color: #5b4585; }
+  .b-cancel { border-color: #7a3a36; } .b-wait { border-color: #6b5f22; }
+  .b-season { background: #232a4d; color: #aab6f5; border-color: #3a4580; }
+  .skel .sk-line { background: linear-gradient(90deg,#1d2a32,#24343d,#1d2a32); }
+  .up-day, .room { background: #1b2830; }
+  .room { background: var(--surface); }
+  .hist li { border-color: #24333c; }
+  .n-error { border-color: #7a3a36; color: #ffc9c4; }
+  .n-warn { border-color: #6b5f22; color: #f2e1a0; }
+  .n-ok { border-color: #2c6a47; color: #bdeed2; }
+  .n-move { border-color: #5b4585; color: #e2d2f8; }
+  .n-info { border-color: #2f6283; color: #bfe0f3; }
+  .demo-banner { background: #4a3a05; color: #ffe9a3; border-color: #9a7b10; }
+  .overlay { background: rgba(0,0,0,.65); }
+  input, select, textarea { background: #101a20; color: var(--ink); border-color: var(--line); }
+  .dialog { background: var(--surface); }
+  .btn.primary:hover { background: #8cc6e8; }
+  .seg { background: #101a20; }
+  .notes-card, .day-note { background: #3a2f12; border-color: #8a6a1c; border-left-color: #e0a020; color: #f6e2a8; }
+  .notes-card.soft { background: #2b2410; border-color: #5e4a14; border-left-color: #b98a1c; }
+  .notes-card h2, .nt-day, .day-note strong { color: #f0c46a; }
+}
+
+/* Offline-bjælke */
+.offline-bar { position: sticky; top: 56px; z-index: 35; display: flex; align-items: center; gap: .6rem; background: var(--wait-soft); color: var(--wait); border-bottom: 2px solid var(--wait); padding: .5rem 1rem; font-size: .88rem; }
+.offline-bar .link { margin-left: auto; padding: .25rem .5rem; white-space: nowrap; }
+body.is-demo .offline-bar { display: none; }

@@ -327,28 +327,34 @@ function shortFacilityName(name: string): { main: string; sub?: string } {
  * i src/lib/facilities.ts: den ene er forælder til den anden via hårde koblinger.
  * Løst koblede faciliteter - fx klatrevæg/opvisningshal - blokerer ikke.)
  */
+function ancestorRelation(descendantId: string, ancestorId: string, facs: FacilityDTO[]): "block" | "warn" | null {
+  const byId = new Map(facs.map((f) => [f.id, f]));
+  let current: string | null = descendantId;
+  let mode: "block" | "warn" = "block";
+  const seen = new Set<string>();
+  while (current) {
+    if (seen.has(current)) return null;
+    seen.add(current);
+    const f = byId.get(current);
+    if (f?.conflictMode === "warn") mode = "warn";
+    const parent: string | null = f?.parentId ?? null;
+    if (parent === ancestorId) return mode;
+    current = parent;
+  }
+  return null;
+}
 function facilityBlocks(aId: string, bId: string, facs: FacilityDTO[]): boolean {
   if (aId === bId) return false;
-  const byId = new Map(facs.map((f) => [f.id, f]));
-  const underAncestor = (descendantId: string, ancestorId: string): "block" | "warn" | null => {
-    let current: string | null = descendantId;
-    let mode: "block" | "warn" = "block";
-    const seen = new Set<string>();
-    while (current) {
-      if (seen.has(current)) return null;
-      seen.add(current);
-      const f = byId.get(current);
-      if (f?.conflictMode === "warn") mode = "warn";
-      const parent: string | null = f?.parentId ?? null;
-      if (parent === ancestorId) return mode;
-      current = parent;
-    }
-    return null;
-  };
-  return underAncestor(bId, aId) === "block" || underAncestor(aId, bId) === "block";
+  return ancestorRelation(bId, aId, facs) === "block" || ancestorRelation(aId, bId, facs) === "block";
+}
+/** Er `bId` forælder (hal) til `aId` via en LØS kobling (fx klatrevæg under opvisningshallen)? Blokerer ikke, men vises som baggrund. */
+function isLooseParent(aId: string, bId: string, facs: FacilityDTO[]): boolean {
+  return aId !== bId && ancestorRelation(aId, bId, facs) === "warn";
 }
 
 interface BlockedSpan {
+  /** "block" = hårdt optaget (fx pickleball/træningshal), "loose" = hallen er booket, men facilitetten blokeres ikke (klatrevæg). */
+  kind: "block" | "loose";
   startMin: number;
   endMin: number;
   label: string;
@@ -374,31 +380,39 @@ function blockedSpansFor(
   for (const b of allBookings) {
     if (b.facilityId === f.id || b.status === "aflyst" || b.status === "afvist") continue;
     if (!bookingOnDay(b, dayStr)) continue;
-    if (!facilityBlocks(f.id, b.facilityId, allFacilities)) continue;
+    const hard = facilityBlocks(f.id, b.facilityId, allFacilities);
+    const loose = !hard && isLooseParent(f.id, b.facilityId, allFacilities);
+    if (!hard && !loose) continue;
     const seg = daySegment(b, dayStr, gridStartMin);
     const srcName = nameOf.get(b.facilityId) ?? "";
     const org = organizationName(b.organizationId);
+    const who = org ?? b.title ?? "";
     raw.push({
+      kind: hard ? "block" : "loose",
       startMin: seg.startMin,
       endMin: seg.endMin,
-      label: shortFacilityName(srcName).main,
+      // Løs kobling (klatrevæg): vis HVEM der har hallen; hård kobling: vis hvilken bane/hal.
+      label: hard ? shortFacilityName(srcName).main : who,
       tooltip: `${shortFacilityName(srcName).main}: ${fmtHM(seg.startMin)}–${fmtHM(seg.endMin)}${org ? ` · ${org}` : b.title ? ` · ${b.title}` : ""}`,
       first: b,
     });
   }
-  raw.sort((a, b) => a.startMin - b.startMin);
-  const merged: BlockedSpan[] = [];
-  for (const r of raw) {
-    const last = merged[merged.length - 1];
-    if (last && r.startMin <= last.endMin) {
-      last.endMin = Math.max(last.endMin, r.endMin);
-      if (!last.label.split(", ").includes(r.label)) last.label += `, ${r.label}`;
-      last.tooltip += `\n${r.tooltip}`;
-    } else {
-      merged.push({ ...r });
+  const mergeKind = (kind: BlockedSpan["kind"]): BlockedSpan[] => {
+    const list = raw.filter((r) => r.kind === kind).sort((a, b) => a.startMin - b.startMin);
+    const out: BlockedSpan[] = [];
+    for (const r of list) {
+      const last = out[out.length - 1];
+      if (last && r.startMin <= last.endMin) {
+        last.endMin = Math.max(last.endMin, r.endMin);
+        if (!last.label.split(", ").includes(r.label)) last.label += `, ${r.label}`;
+        last.tooltip += `\n${r.tooltip}`;
+      } else {
+        out.push({ ...r });
+      }
     }
-  }
-  return merged;
+    return out;
+  };
+  return [...mergeKind("loose"), ...mergeKind("block")];
 }
 
 /** Gennemsigtigt, skraveret felt: "optaget via en tilknyttet facilitet". */
@@ -407,6 +421,17 @@ const BLOCKED_STYLE: CSSProperties = {
     "repeating-linear-gradient(135deg, rgba(71,85,105,0.22) 0, rgba(71,85,105,0.22) 5px, rgba(71,85,105,0.07) 5px, rgba(71,85,105,0.07) 10px)",
   border: "1px dashed rgba(71,85,105,0.55)",
 };
+
+/** Svagere, prikket skravering: "hallen er booket" (påvirker facilitetten, men blokerer ikke). */
+const LOOSE_STYLE: CSSProperties = {
+  backgroundImage:
+    "repeating-linear-gradient(135deg, rgba(100,116,139,0.14) 0, rgba(100,116,139,0.14) 5px, rgba(100,116,139,0.04) 5px, rgba(100,116,139,0.04) 10px)",
+  border: "1px dotted rgba(100,116,139,0.6)",
+};
+const spanStyle = (sp: { kind: "block" | "loose" }): CSSProperties => (sp.kind === "loose" ? LOOSE_STYLE : BLOCKED_STYLE);
+const spanLabel = (sp: { kind: "block" | "loose"; label: string }) => (sp.kind === "loose" ? `I hallen: ${sp.label}` : `Optaget: ${sp.label}`);
+const spanTitle = (sp: { kind: "block" | "loose"; tooltip: string }) =>
+  sp.kind === "loose" ? `Hallen er booket (klatrevæggen blokeres ikke automatisk):\n${sp.tooltip}` : `Optaget via tilknyttet facilitet:\n${sp.tooltip}`;
 
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
   ikke_paakraevet: "",
@@ -1767,11 +1792,11 @@ function DayGridView({
                   <div
                     key={`blocked-${k}`}
                     onClick={() => onSelect(sp.first)}
-                    title={`Optaget via tilknyttet facilitet:\n${sp.tooltip}`}
+                    title={spanTitle(sp)}
                     className="absolute left-0.5 right-0.5 overflow-hidden rounded-lg cursor-pointer"
-                    style={{ top, height, ...BLOCKED_STYLE }}
+                    style={{ top, height, ...spanStyle(sp) }}
                   >
-                    <div className="px-1.5 text-[11px] font-semibold leading-tight text-slate-700 truncate">Optaget: {sp.label}</div>
+                    <div className="px-1.5 text-[11px] font-semibold leading-tight text-slate-700 truncate">{spanLabel(sp)}</div>
                   </div>
                 );
               })}
@@ -1874,6 +1899,9 @@ function CalendarLegend() {
       </span>
       <span className={`${chip} text-slate-700`} style={BLOCKED_STYLE}>
         Skraveret = optaget via tilknyttet bane/hal
+      </span>
+      <span className={`${chip} text-slate-700`} style={LOOSE_STYLE}>
+        Prikket = hallen er booket (klatrevæg)
       </span>
       <span className="text-slate-400">Dobbeltklik i en celle for at oprette en booking. Højreklik på en booking for hurtige handlinger.</span>
     </div>
@@ -2110,12 +2138,12 @@ function WeekMatrixView({
                 e.stopPropagation();
                 onSelect(sp.first);
               }}
-              title={`Optaget via tilknyttet facilitet:\n${sp.tooltip}`}
+              title={spanTitle(sp)}
               className="absolute left-px right-px overflow-hidden rounded-md cursor-pointer"
-              style={{ top, height, ...BLOCKED_STYLE }}
+              style={{ top, height, ...spanStyle(sp) }}
             >
               <div className="px-1 text-[10px] font-semibold leading-tight text-slate-700 truncate">
-                Optaget: {sp.label}
+                {spanLabel(sp)}
               </div>
             </div>
           );

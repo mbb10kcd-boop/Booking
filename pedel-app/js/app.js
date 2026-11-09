@@ -1,5 +1,5 @@
 // Pedel-app: router, login, "I dag", "Bookinger" og detaljevisning.
-import { api, ApiError, NetworkError, enableDemo, disableDemo, isDemo } from "./api.js";
+import { api, ApiError, NetworkError, enableDemo, disableDemo, isDemo, offlineSince, clearCache } from "./api.js";
 import {
   esc, todayStr, nowLocal, addDaysStr, mondayOf, monthStart, addMonthsStr, daysInMonth, dow, isoWeek, MONTHS, DAYS_SHORT,
   fmtDateLongCap, fmtDateShort, relativeDayLabel, hhmm, onDay, isCancelled, isNow, isOver, dayTimeLabel, lastDay, isMultiDay,
@@ -42,12 +42,20 @@ function shell(active, inner, { back = null, title = "Pedel" } = {}) {
         <div class="who">${user ? `<span class="who-name">${esc(user.name)}</span>` : ""}<button class="link" data-logout="1">Log ud</button></div>
       </div>
     </header>
+    ${offlineBar()}
     <main class="main" id="main">${inner}</main>
     <nav class="tabbar" aria-label="Hovedmenu">
       ${tab("#/", "today", "today", "I dag")}
       <a href="#/opret" class="tab tab-create ${active === "create" ? "active" : ""}" ${active === "create" ? 'aria-current="page"' : ""}><span class="fab">${icon("plus")}</span><span>Opret</span></a>
       ${tab("#/bookinger", "list", "list", "Bookinger")}
     </nav>`;
+}
+function offlineBar() {
+  const at = offlineSince();
+  if (!at || isDemo()) return "";
+  const d = new Date(at);
+  const t = new Intl.DateTimeFormat("da-DK", { timeZone: "Europe/Copenhagen", hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" }).format(d);
+  return `<div class="offline-bar" role="status">${icon("warn")}<span><strong>Ingen forbindelse</strong> – du ser data fra ${esc(t)}. Ændringer kan ikke gemmes, før nettet er tilbage.</span><button class="link" data-reload="1">Prøv igen</button></div>`;
 }
 function setView(html) { $app.innerHTML = html; window.scrollTo(0, 0); }
 function userMessage(err) {
@@ -57,7 +65,7 @@ function userMessage(err) {
 }
 function handleAuth(err) {
   if (err instanceof ApiError && err.status === 401 && !isDemo()) {
-    user = null;
+    user = null; clearCache();
     location.hash = "#/login";
     sessionStorage.setItem("pedel-login-msg", "Din session er udløbet – log ind igen.");
     return true;
@@ -593,7 +601,7 @@ document.addEventListener("click", async (e) => {
   const d = t.dataset;
   if ("logout" in d) {
     try { await api.logout(); } catch { /* ignorer – vi nulstiller alligevel lokalt */ }
-    user = null; resetRef(); invalidateCache(); disableDemo(); saveUser(null);
+    user = null; resetRef(); invalidateCache(); disableDemo(); saveUser(null); clearCache();
     document.getElementById("demo-banner").hidden = true; document.body.classList.remove("is-demo");
     location.hash = "#/login"; return renderLogin();
   }
@@ -609,3 +617,6 @@ document.addEventListener("click", async (e) => {
 window.addEventListener("hashchange", route);
 document.addEventListener("visibilitychange", () => { if (!document.hidden && currentRoute().name === "today" && user) { invalidateCache(); renderToday(); } });
 route();
+
+// Service worker: appen kan åbnes uden net (kun på den rigtige adresse - ikke ved lokal test).
+if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => { /* ikke kritisk */ });
