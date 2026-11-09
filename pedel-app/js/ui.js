@@ -75,7 +75,11 @@ export const responsible = (b) => b.contactName || orgName(b.organizationId) || 
 
 // ---- Status / mærkater ----
 const UNCONFIRMED = new Set(["forespoergsel", "afventer_godkendelse", "reserveret", "midlertidig"]);
+// Bookinger der er importeret/rettet i bulk fra GIBBS (sæsonimport) er ikke "nyt" for pedellen - ellers fyldes
+// "Seneste ændringer" og Ny/Ændret-mærkaterne med støj, hver gang der indlæses eller ryddes op i sæsonen.
+const isBulk = (b) => b.source === "saesonimport" || b.createdBy === "GIBBS-import";
 export function recency(b) {
+  if (isBulk(b)) return { isNew: false, changed: false, created: null, updated: null };
   const created = stampToLocalNaive(b.createdAt);
   const updated = stampToLocalNaive(b.updatedAt);
   const now = nowLocal();

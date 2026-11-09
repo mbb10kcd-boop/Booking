@@ -83,7 +83,7 @@ export async function renderForm(deps, { mode, query, id }) {
           <label class="field"><span>Til *</span><input type="time" id="f-end" value="${esc(f.end)}" step="300"><p class="err" id="err-end" hidden></p></label>
         </div>
         <div class="chips" role="group" aria-label="Hurtigt valg af varighed"><span>Varighed:</span>
-          ${[[60, "1 t"], [90, "1,5 t"], [120, "2 t"], [180, "3 t"]].map(([m, l]) => `<button type="button" class="chip" data-dur="${m}">${l}</button>`).join("")}</div>
+          ${[[30, "30 min"], [45, "45 min"], [60, "1 t"], [90, "1,5 t"], [120, "2 t"], [180, "3 t"]].map(([m, l]) => `<button type="button" class="chip" data-dur="${m}">${l}</button>`).join("")}</div>
         <label class="check"><input type="checkbox" id="f-multi" ${f.multi ? "checked" : ""}><span>Løber over flere dage</span></label>
         <label class="field" id="enddate-wrap" ${f.multi ? "" : "hidden"}><span>Slutdato</span><input type="date" id="f-enddate" value="${esc(f.endDate)}"><p class="err" id="err-enddate" hidden></p></label>
         <div id="conflict" class="conflict" aria-live="polite"></div>

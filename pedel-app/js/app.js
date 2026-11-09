@@ -153,6 +153,7 @@ async function renderToday() {
           <div class="stat s-later" role="listitem"><strong>${later.length}</strong><span>kommer senere</span></div>
         </div>
         <a class="btn primary big block" href="#/opret">${icon("plus")}Opret booking</a>
+        ${renderRooms(all, today)}
         <div class="cols">
           <div class="col-main">
             ${active.length === 0 ? `<div class="empty">${icon("check")}<p><strong>Ingen bookinger i dag</strong></p><p>Der er ikke noget på programmet.</p></div>` : ""}
@@ -195,6 +196,7 @@ function recentChanges(all) {
   const ev = [];
   for (const b of all) {
     const r = recency(b);
+    if (b.source === "saesonimport" || b.createdBy === "GIBBS-import") continue;
     if (isCancelled(b)) {
       // Tidsstemplet bruges kun, hvis det ikke ligger i fremtiden (ældre importerede aflysninger har en datoværdi i fremtiden).
       const at = b.cancelledAt && b.cancelledAt <= now ? b.cancelledAt : r.updated;
@@ -226,6 +228,34 @@ function renderNotes(todayNotes, laterNotes, active, today) {
   if (withNotes.length) parts.push(`<section class="notes-card soft"><h2>${icon("note")}Noter til dagens bookinger</h2><ul>${withNotes.map((b) => `<li><a href="#/booking/${encodeURIComponent(b.id)}"><strong class="nt-day">${esc(dayTimeLabel(b, today).split("–")[0])} ${esc(b.title)}</strong><span>${esc(b.notes)}</span></a></li>`).join("")}</ul></section>`);
   if (laterNotes.length) parts.push(`<section class="notes-card soft"><h2>${icon("flag")}Kommende dagsnoter</h2><ul>${laterNotes.map((n) => dayNote(n, true)).join("")}</ul></section>`);
   return `<div class="notes-stack">${parts.join("")}</div>`;
+}
+/** "Lokaler lige nu": ledig/optaget pr. hovedlokale (underlokaler som baner tæller med i deres hal). */
+function renderRooms(all, today) {
+  const now = nowLocal();
+  const rootId = (id) => {
+    let f = ref.fac.get(id);
+    for (let i = 0; i < 5 && f?.parentId && ref.fac.get(f.parentId); i++) f = ref.fac.get(f.parentId);
+    return f?.id;
+  };
+  const items = all.filter((b) => !isCancelled(b) && onDay(b, today));
+  const tops = ref.facList.filter((f) => !f.parentId).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name, "da"));
+  const rows = tops.map((f) => {
+    const mine = items.filter((b) => rootId(b.facilityId) === f.id).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    const cur = mine.find((b) => isNow(b, now));
+    if (cur) {
+      // Sammenhængende bookinger (fx klubtid efter klubtid) regnes som én optaget periode.
+      let end = cur.endsAt;
+      for (let i = 0; i < mine.length; i++) { const nx = mine.find((b) => b.startsAt <= end && b.endsAt > end); if (!nx) break; end = nx.endsAt; }
+      const sub = cur.facilityId !== f.id ? ` (${facName(cur.facilityId)})` : "";
+      return { f, busy: true, text: `${cur.title}${sub}`, until: end.slice(0, 10) > today ? "i morgen" : `til ${hhmm(end)}` };
+    }
+    const next = mine.find((b) => b.startsAt > now);
+    if (next) return { f, busy: false, text: `Næste: ${next.title}`, until: `ledig til ${hhmm(next.startsAt)}` };
+    return { f, busy: false, text: mine.length ? "Ikke flere bookinger i dag" : "Ingen bookinger i dag", until: "ledig" };
+  });
+  if (!rows.length) return "";
+  rows.sort((a, b) => Number(b.busy) - Number(a.busy));
+  return `<section class="rooms-wrap"><h2>${icon("pin")}Lokaler lige nu</h2><ul class="rooms">${rows.map((r) => `<li><a class="room ${r.busy ? "r-busy" : "r-free"}" href="#/bookinger?view=dag&date=${today}&fac=${encodeURIComponent(r.f.id)}" style="--fc:${esc(r.f.color || "#2563eb")}"><span class="r-dot"></span><span class="r-tx"><strong>${esc(r.f.name)}</strong><span class="r-st">${esc(r.until)}</span><small>${esc(r.text)}</small></span></a></li>`).join("")}</ul></section>`;
 }
 function renderUpcoming(all, today) {
   const days = [];
@@ -300,6 +330,7 @@ async function renderList(query) {
   if (p.get("view")) listState.view = p.get("view");
   listState.scrollToday = listState.view === "uge";
   if (p.get("date")) listState.date = p.get("date");
+  if (p.has("fac")) { listState.fac = p.get("fac") || ""; listState.status = "aktive"; }
   if (!listState.date) listState.date = todayStr();
   let facOptions = "";
   try {

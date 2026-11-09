@@ -278,3 +278,17 @@ details.fold .cards { margin-top: .4rem; }
 .chg.c-cancel { opacity: .75; }
 .day-note { display: flex; gap: .55rem; align-items: flex-start; background: #fff3d6; border: 1.5px solid #e8b94a; border-left: 7px solid #e0a020; color: #4d3600; border-radius: 12px; padding: .6rem .8rem; margin: 0 0 .6rem; font-size: 1rem; font-weight: 600; overflow-wrap: anywhere; }
 .day-note strong { color: #7a5200; text-transform: uppercase; font-size: .78rem; letter-spacing: .04em; display: block; }
+
+/* Lokaler lige nu: kompakte fliser lige under tallene på forsiden */
+.rooms-wrap { margin: 1.1rem 0 1.25rem; }
+.rooms-wrap h2 { font-size: 1rem; margin-bottom: .5rem; display: flex; align-items: center; gap: .4rem; }
+.rooms { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem; }
+.room { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: .5rem; height: 100%; text-decoration: none; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: .55rem .65rem; border-left: 5px solid var(--fc, var(--primary)); box-shadow: var(--shadow); }
+.room .r-dot { width: .7rem; height: .7rem; margin-top: .3rem; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.room.r-busy .r-dot { background: var(--cancel); box-shadow: 0 0 0 3px var(--cancel-soft); }
+.r-tx { display: grid; min-width: 0; gap: .05rem; }
+.r-tx strong { font-size: .92rem; line-height: 1.2; }
+.r-st { font-size: .82rem; font-weight: 700; color: var(--ok); }
+.room.r-busy .r-st { color: var(--cancel); }
+.r-tx small { color: var(--muted); font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (min-width: 700px) { .rooms { grid-template-columns: repeat(4, 1fr); } }
