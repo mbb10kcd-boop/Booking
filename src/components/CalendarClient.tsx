@@ -36,6 +36,31 @@ function startOfWeek(d: Date): Date {
   return date;
 }
 
+// Husker den sidst brugte aflysningsårsag i 3 timer, så den ikke skal skrives igen, når man aflyser flere bookinger i træk.
+// (Kun 3 timer: årsagen vises offentligt på aflysningslisten, så en gammel årsag må ikke hænge ved til næste dag.)
+const LAST_CANCEL_REASON_KEY = "gic-last-cancel-reason";
+function askCancelReason(): string | null {
+  let last = "";
+  try {
+    const v = JSON.parse(localStorage.getItem(LAST_CANCEL_REASON_KEY) || "null");
+    if (v && typeof v.text === "string" && Date.now() - v.at < 3 * 3600 * 1000) last = v.text;
+  } catch {
+    /* ingen gemt årsag */
+  }
+  const reason = window.prompt(
+    `Årsag (vises på aflysningslisten på hjemmesiden - kan stå tom)${last ? "\nDen sidst brugte årsag er udfyldt - ret eller slet den, hvis den ikke passer." : ""}:`,
+    last
+  );
+  if (reason !== null && reason.trim()) {
+    try {
+      localStorage.setItem(LAST_CANCEL_REASON_KEY, JSON.stringify({ text: reason.trim(), at: Date.now() }));
+    } catch {
+      /* ignorer */
+    }
+  }
+  return reason;
+}
+
 function addDays(d: Date, n: number): Date {
   const date = new Date(d);
   date.setDate(date.getDate() + n);
@@ -753,7 +778,7 @@ export function CalendarClient({
   async function quickCancelBooking(booking: BookingDTO) {
     const label = booking.seasonGroupId ? "denne dags forekomst af" : "";
     if (!window.confirm(`Aflys ${label} "${booking.title}"?`.replace("  ", " "))) return;
-    const reason = window.prompt("Årsag (vises på aflysningslisten på hjemmesiden - kan stå tom):", "");
+    const reason = askCancelReason();
     if (reason === null) return;
     setContextMenu(null);
     await fetch(`/api/bookings/${booking.id}`, {
@@ -767,7 +792,7 @@ export function CalendarClient({
   async function quickCancelSeason(booking: BookingDTO) {
     if (!booking.seasonGroupId) return;
     if (!window.confirm(`Aflys HELE sæsonen "${booking.title}" (alle kommende forekomster)?`)) return;
-    const reason = window.prompt("Årsag (vises på aflysningslisten på hjemmesiden - kan stå tom):", "");
+    const reason = askCancelReason();
     if (reason === null) return;
     setContextMenu(null);
     await fetch(`/api/bookings/season/${booking.seasonGroupId}`, {
@@ -1079,6 +1104,17 @@ export function CalendarClient({
               >
                 &rarr;
               </button>
+              <input
+                type="date"
+                value={localISODate(anchor)}
+                onChange={(e) => {
+                  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(e.target.value);
+                  if (m) setAnchor(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+                }}
+                title="Hop direkte til en dato"
+                aria-label="Hop til dato"
+                className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-600 hover:bg-slate-50"
+              />
             </div>
             {headerDateLabel && (
               <div className="text-base font-bold text-slate-800 whitespace-nowrap">{headerDateLabel}</div>
@@ -2618,7 +2654,7 @@ function BookingDetail({
   }
 
   async function cancelBooking() {
-    const reason = window.prompt("Årsag (vises på aflysningslisten på hjemmesiden - kan stå tom):", "");
+    const reason = askCancelReason();
     if (reason === null) return;
     setBusy(true);
     await fetch(`/api/bookings/${booking.id}`, {
@@ -2646,7 +2682,7 @@ function BookingDetail({
 
   /** Aflyser alle KOMMENDE forekomster af sæsonen på én gang (se /api/bookings/season/[seasonGroupId]) - ikke kun den her viste dag. */
   async function cancelSeason() {
-    const reason = window.prompt("Årsag (vises på aflysningslisten på hjemmesiden - kan stå tom):", "");
+    const reason = askCancelReason();
     if (reason === null) return;
     setSeasonBusy(true);
     await fetch(`/api/bookings/season/${booking.seasonGroupId}`, {
