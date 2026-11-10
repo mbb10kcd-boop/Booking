@@ -379,8 +379,10 @@ async function updateList() {
     bar.innerHTML = `<div class="searchinfo">${icon("search")}<span>Søger i bookinger fra 14 dage tilbage til 1 år frem.</span><button class="link" data-clear-search="1">Ryd søgning</button></div>`;
   } else {
     bar.innerHTML = `<div class="seg" role="tablist" aria-label="Visning">${["dag", "uge", "maaned"].map((v) => `<button role="tab" aria-selected="${st.view === v}" class="${st.view === v ? "on" : ""}" data-view="${v}">${v === "maaned" ? "Måned" : v[0].toUpperCase() + v.slice(1)}</button>`).join("")}</div>
-      <div class="datenav"><button class="icon-btn" data-nav="-1" aria-label="Forrige">${icon("chevL")}</button><div class="datelabel">${esc(rangeLabel(st))}</div><button class="icon-btn" data-nav="1" aria-label="Næste">${icon("chevR")}</button><button class="btn small" data-today="1">I dag</button></div>`;
+      <div class="datenav"><button class="icon-btn" data-nav="-1" aria-label="Forrige">${icon("chevL")}</button><div class="datelabel">${esc(rangeLabel(st))}</div><button class="icon-btn" data-nav="1" aria-label="Næste">${icon("chevR")}</button><button class="btn small" data-today="1">I dag</button><input type="date" class="datejump" id="datejump" value="${esc(st.date)}" aria-label="Hop til dato" title="Hop direkte til en dato"></div>`;
   }
+  const jump = $("#datejump");
+  if (jump) jump.addEventListener("change", () => { if (/^\d{4}-\d{2}-\d{2}$/.test(jump.value)) { st.date = jump.value; st.scrollToday = st.view === "uge"; updateList(); } });
   res.innerHTML = skeleton(3);
   try {
     const [rows, notes] = await Promise.all([
@@ -524,6 +526,11 @@ function fmtHist(ts) {
   return l ? `${fmtDateShort(l.slice(0, 10))} kl. ${hhmm(l)}` : "";
 }
 
+// Sidst brugte aflysningsårsag huskes i 3 timer (årsagen vises offentligt - den må ikke hænge ved til en anden dag).
+const REASON_KEY = "pedel-last-cancel-reason";
+function lastReason() { try { const v = JSON.parse(localStorage.getItem(REASON_KEY) || "null"); return v && Date.now() - v.at < 3 * 3600 * 1000 ? String(v.text || "") : ""; } catch { return ""; } }
+function saveReason(t) { try { if (t) localStorage.setItem(REASON_KEY, JSON.stringify({ text: t, at: Date.now() })); } catch { /* ignorer */ } }
+
 function confirmCancel(b) {
   const org = orgName(b.organizationId);
   const will = [];
@@ -535,14 +542,16 @@ function confirmCancel(b) {
     body: `<div class="sum"><strong>${esc(b.title)}</strong><br>${esc(fmtDateShort(b.startsAt.slice(0, 10)))} · ${esc(dayTimeLabel(b, b.startsAt.slice(0, 10)))}<br>${esc(facName(b.facilityId))}${responsible(b) ? " · " + esc(responsible(b)) : ""}</div>
       ${will.length ? `<ul class="will">${will.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
       ${b.seasonGroupId ? `<p class="hint">Kun denne ene dag aflyses – resten af sæsonen røres ikke.</p>` : ""}
-      <label class="field"><span>Årsag (valgfri)</span><input type="text" id="cancel-reason" maxlength="120" placeholder="fx Kamp rykket, sygdom …"></label>
+      <label class="field"><span>Årsag (valgfri)</span><input type="text" id="cancel-reason" maxlength="120" placeholder="fx Kamp rykket, sygdom …" value="${esc(lastReason())}"></label>${lastReason() ? `<p class="hint">Den sidst brugte årsag er udfyldt – ret eller slet den, hvis den ikke passer.</p>` : ""}
       <p class="hint">Bookingen slettes ikke – den markeres som aflyst og kan ses i historikken.</p>`,
     actions: [
       { label: "Behold booking" },
       { label: "Ja, aflys booking", cls: "danger", onClick: async (d) => {
         d.setError(""); d.setBusy(true);
         try {
-          await api.cancel(b.id, d.root.querySelector("#cancel-reason").value.trim());
+          const reasonText = d.root.querySelector("#cancel-reason").value.trim();
+          await api.cancel(b.id, reasonText);
+          saveReason(reasonText);
           invalidateCache();
           d.close();
           toast("Booking aflyst");
