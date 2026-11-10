@@ -66,6 +66,8 @@ export default function InfoScreenPage({ params }: { params: Promise<{ id: strin
   const [data, setData] = useState<{ screen: { name: string }; byFacility: FacilityBlock[] } | null>(null);
   const [now, setNow] = useState(new Date());
   const [error, setError] = useState(false);
+  // Tidspunkt for sidste vellykkede hentning: ved netfejl bliver de gamle data stående i stedet for en fejlskærm.
+  const [lastOk, setLastOk] = useState<number | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
   const [gridHeight, setGridHeight] = useState(600);
   // Finjustering oven på beregningen herunder: hvis noget alligevel løber ud over kanten, skrumpes alt lidt ad gangen.
@@ -73,22 +75,31 @@ export default function InfoScreenPage({ params }: { params: Promise<{ id: strin
 
   async function load() {
     try {
-      const res = await fetch(`/api/screens/${id}`);
-      if (!res.ok) {
+      const res = await fetch(`/api/screens/${id}`, { cache: "no-store" });
+      // Kun en rigtig "findes ikke" giver fejlskærm. Netfejl/serverfejl (fx under en opdatering) lader de sidste data stå.
+      if (res.status === 404) {
         setError(true);
         return;
       }
+      if (!res.ok) return;
       setData(await res.json());
       setError(false);
+      setLastOk(Date.now());
     } catch {
-      setError(true);
+      /* ingen forbindelse: behold det viste */
     }
   }
 
   useEffect(() => {
     load();
     const dataInterval = setInterval(load, 30000);
-    const clockInterval = setInterval(() => setNow(new Date()), 1000);
+    const startDay = nowLocalDateTimeString(new Date()).slice(0, 10);
+    const clockInterval = setInterval(() => {
+      const n = new Date();
+      setNow(n);
+      // Ved dagsskifte genindlæses siden, så en fastmonteret skærm også henter nye versioner af visningen.
+      if (nowLocalDateTimeString(n).slice(0, 10) !== startDay) window.location.reload();
+    }, 1000);
     return () => {
       clearInterval(dataInterval);
       clearInterval(clockInterval);
@@ -140,7 +151,7 @@ export default function InfoScreenPage({ params }: { params: Promise<{ id: strin
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-950 text-white p-8 md:p-12 flex flex-col">
+    <div className="relative h-screen overflow-hidden bg-slate-950 text-white p-8 md:p-12 flex flex-col">
       <div className="flex items-center justify-between mb-8 shrink-0">
         <div>
           <div className="text-blue-400 text-lg font-medium">Grenaa Idrætscenter</div>
@@ -156,6 +167,11 @@ export default function InfoScreenPage({ params }: { params: Promise<{ id: strin
         </div>
       </div>
 
+      {lastOk !== null && now.getTime() - lastOk > 5 * 60 * 1000 && (
+        <div className="absolute bottom-3 right-5 text-sm text-amber-400/80">
+          Ingen forbindelse – sidst opdateret {new Date(lastOk).toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" })}
+        </div>
+      )}
       <div
         ref={gridRef}
         className="grid flex-1 min-h-0"
