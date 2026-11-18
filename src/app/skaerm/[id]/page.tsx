@@ -26,7 +26,7 @@ function columnsFor(count: number): number {
 // bookinger - i stedet for at de nederste bookinger bliver skåret af.
 // Tallene er pixels ved normal størrelse (16 px) og bruges kun til at regne
 // ud, hvor meget der kan være på skærmen.
-const PX = { padding: 48, head: 56, row: 72, empty: 44, more: 36, gap: 24 };
+const PX = { padding: 48, head: 76, row: 72, empty: 44, more: 36, gap: 24 };
 // Mindste skalering før vi i stedet viser et loft med en "+N flere i dag"-linje.
 const MIN_SCALE = 0.6;
 const MIN_VISIBLE = 3;
@@ -154,7 +154,7 @@ export default function InfoScreenPage({ params }: { params: Promise<{ id: strin
     <div className="relative h-screen overflow-hidden bg-slate-950 text-white p-8 md:p-12 flex flex-col">
       <div className="flex items-center justify-between mb-8 shrink-0">
         <div>
-          <div className="text-blue-400 text-lg font-medium">Grenaa Idrætscenter</div>
+          <div className="text-blue-400 text-2xl md:text-3xl font-semibold">Djurslands Bank GRENAA ARENA</div>
           <h1 className="text-4xl md:text-5xl font-bold">I DAG</h1>
         </div>
         <div className="text-right">
@@ -193,10 +193,10 @@ export default function InfoScreenPage({ params }: { params: Promise<{ id: strin
             >
               <div className="flex items-center gap-[0.75em] mb-[1em] shrink-0">
                 <span
-                  className="w-[1em] h-[1em] rounded-full shrink-0"
+                  className="w-[1.4em] h-[1.4em] rounded-full shrink-0"
                   style={{ backgroundColor: block.facility?.color ?? "#64748b" }}
                 />
-                <h2 className="text-[1.75em] leading-tight font-semibold uppercase tracking-wide truncate">
+                <h2 className="text-[2.4em] leading-tight font-bold uppercase tracking-wide truncate">
                   {block.facility?.name ?? "Ukendt"}
                 </h2>
               </div>
